@@ -1,0 +1,17 @@
+.git
+.agents
+AGENTS.md
+docs/development
+.env
+.env.*
+!.env.example
+.venv
+.cache
+data
+logs
+__pycache__
+.pytest_cache
+.ruff_cache
+notes
+scratch
+*PLAYBOOK*.md

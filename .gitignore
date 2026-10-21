@@ -1,0 +1,28 @@
+# Local development assistance and working notes
+/.agents/
+/AGENTS.md
+/docs/development/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Runtime data, uploaded documents, and downloaded models
+/data/
+/.cache/
+/logs/
+
+# Python environments and generated files
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.DS_Store
+
+# Private working material
+*PLAYBOOK*.md
+/notes/
+/scratch/
