@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     sqlite_filename: str = "app.db"
     chroma_collection: str = "agent_documents"
     default_chat_provider: Literal["litellm", "openai", "openrouter"] = "litellm"
-    litellm_model: str = "ollama_chat/llama3.1:8b"
+    litellm_model: str = "ollama_chat/qwen3:8b"
     ollama_base_url: str = "http://127.0.0.1:11434"
     openai_model: str = "gpt-4o-mini"
     openrouter_model: str = "openrouter/free"
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     chunk_size_tokens: int = Field(default=350, ge=32, le=480)
     chunk_overlap_tokens: int = Field(default=50, ge=0)
     retrieval_top_k: int = Field(default=4, ge=1, le=30)
-    similarity_threshold: float = Field(default=0.80, ge=0, le=1)
+    similarity_threshold: float = Field(default=0.83, ge=0, le=1)
     max_upload_mb: int = Field(default=20, ge=1, le=100)
     provider_timeout_seconds: float = Field(default=60, gt=0, le=300)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"

@@ -7,7 +7,9 @@ from pydantic import ValidationError
 from src.bootstrap import initialize
 from src.config import get_settings
 from src.environment import ollama_status
+from src.knowledge.parsing import DocumentError
 from src.models import AgentInput, ProviderName
+from src.providers.base import ProviderError
 from src.services.agents import AgentDeletionError, AgentNotFoundError
 
 st.set_page_config(page_title="Ruang Dokumen", page_icon="📚", layout="wide")
@@ -208,8 +210,116 @@ with documents:
     st.subheader("Dokumen agent")
     if selected_id:
         st.caption(f"Agent: {services.agents.get(selected_id).name}")
-    st.info("Pengunggahan dan pemrosesan PDF/DOCX belum tersedia pada versi fondasi ini.")
+        st.caption(
+            "PDF dengan teks yang dapat diseleksi, maksimal "
+            f"{settings.max_upload_mb} MB/file. OCR dan DOCX belum tersedia pada tahap ini."
+        )
+        with st.form(f"upload_{selected_id}", clear_on_submit=True):
+            uploads = st.file_uploader(
+                "Pilih PDF",
+                type=["pdf"],
+                accept_multiple_files=True,
+                max_upload_size=settings.max_upload_mb,
+            )
+            submit_upload = st.form_submit_button("Proses dokumen", type="primary")
+        if submit_upload:
+            if not uploads:
+                st.warning("Pilih minimal satu file PDF.")
+            for upload in uploads:
+                with st.status(f"Memproses {upload.name}…", expanded=True) as status:
+                    try:
+                        doc = services.documents.upload(selected_id, upload.name, upload.getvalue())
+                        if doc.status == "ready":
+                            status.update(
+                                label=f"{doc.filename} siap · {doc.chunks_count} chunk",
+                                state="complete",
+                                expanded=False,
+                            )
+                        else:
+                            st.error(doc.error_message)
+                            status.update(label=f"{doc.filename} gagal diproses", state="error")
+                    except (DocumentError, AgentNotFoundError) as error:
+                        st.error(str(error))
+                        status.update(label="Upload gagal", state="error")
+        uploaded_docs = services.documents.list_documents(selected_id)
+        if not uploaded_docs:
+            st.info("Belum ada dokumen. Unggah PDF untuk menyiapkan knowledge agent ini.")
+        for doc in uploaded_docs:
+            with st.container(border=True):
+                left, right = st.columns([5, 1])
+                with left:
+                    st.write(doc.filename)
+                    st.caption(f"Status: {doc.status} · {doc.chunks_count} chunk")
+                    if doc.error_message:
+                        st.error(doc.error_message)
+                with right:
+                    if st.button("Hapus", key=f"delete_doc_{doc.id}"):
+                        try:
+                            services.documents.delete(selected_id, doc.id)
+                            show_notice(
+                                "Dokumen dihapus dan tidak lagi digunakan untuk jawaban baru."
+                            )
+                        except DocumentError as error:
+                            st.error(str(error))
+    else:
+        st.info("Buat atau pilih agent dahulu untuk mengunggah dokumen.")
 
 with chat:
     st.subheader("Percakapan")
-    st.info("Percakapan bersumber dokumen akan tersedia setelah pemrosesan knowledge diaktifkan.")
+    if selected_id:
+        current = services.agents.get(selected_id)
+        st.caption(f"{current.name} · {current.provider.value} · {current.model}")
+        conversation_key = f"conversation_{selected_id}"
+        if conversation_key not in st.session_state:
+            st.session_state[conversation_key] = services.chat.latest_conversation(
+                selected_id
+            ) or services.chat.new_conversation(selected_id)
+        if st.button("Percakapan baru", key=f"new_chat_{selected_id}"):
+            st.session_state[conversation_key] = services.chat.new_conversation(selected_id)
+            st.rerun()
+        conversation_id = st.session_state[conversation_key]
+        active_documents = set(services.documents.ready_ids(selected_id))
+        if not active_documents:
+            st.info("Belum ada dokumen siap. Agent akan menyatakan informasi belum tersedia.")
+
+        def render_answer(message):
+            st.markdown(message["content"])
+            for citation in message["citations"]:
+                active = citation["document_id"] in active_documents
+                with st.expander(f"[{citation['tag']}] Sumber · halaman PDF {citation['page']}"):
+                    st.write(citation["filename"])
+                    if not active:
+                        st.warning(
+                            "Dokumen sumber sudah dihapus/tidak aktif. "
+                            "Jawaban ini merupakan riwayat lama."
+                        )
+                    st.caption(
+                        f"Kemiripan retrieval: {citation['score']:.3f} "
+                        "(bukan tingkat kepastian jawaban)"
+                    )
+                    st.text(citation["text"])
+
+        for message in services.chat.messages(selected_id, conversation_id):
+            with st.chat_message(message["role"]):
+                if message["role"] == "assistant":
+                    render_answer(message)
+                else:
+                    st.markdown(message["content"])
+        if question := st.chat_input(
+            "Tanyakan isi dokumen agent ini", max_chars=2000, key=f"question_{selected_id}"
+        ):
+            with st.chat_message("user"):
+                st.markdown(question)
+            with st.chat_message("assistant"), st.spinner("Mencari sumber dan menyusun jawaban…"):
+                try:
+                    answer = services.chat.ask(selected_id, conversation_id, question)
+                    render_answer(answer)
+                except (ProviderError, ValueError) as error:
+                    st.error(str(error))
+                except Exception as error:
+                    logger.error("chat_failed error_type=%s", type(error).__name__)
+                    st.error(
+                        "Jawaban belum dapat dibuat. Periksa embedding dan penyimpanan aplikasi."
+                    )
+    else:
+        st.info("Pilih agent untuk memulai percakapan.")

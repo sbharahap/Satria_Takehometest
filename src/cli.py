@@ -19,7 +19,7 @@ def main() -> int:
         settings = get_settings()
         settings.ensure_directories()
         if args.command == "download-embedding":
-            embeddings = LocalEmbeddings(settings)
+            embeddings = LocalEmbeddings(settings, local_files_only=False)
             vector = embeddings.embed_query("Apa kebijakan pengembangan karyawan?")
             receipt = {
                 "model": settings.embedding_model,

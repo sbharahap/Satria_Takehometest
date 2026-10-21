@@ -28,3 +28,27 @@ class Agent(AgentInput):
     status: str
     created_at: str
     updated_at: str
+
+
+class Document(BaseModel):
+    id: str
+    agent_id: str
+    filename: str
+    file_type: str
+    status: str
+    chunks_count: int
+    error_message: str | None
+    created_at: str
+
+
+class Source(BaseModel):
+    chunk_id: str
+    document_id: str
+    filename: str
+    page: int
+    text: str
+    score: float
+
+
+class Citation(Source):
+    tag: str
