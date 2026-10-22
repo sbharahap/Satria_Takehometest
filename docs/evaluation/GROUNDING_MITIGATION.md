@@ -12,7 +12,7 @@ Baseline dan kegagalannya tetap ada di [LOCAL_MODEL_COMPARISON.md](LOCAL_MODEL_C
 
 ## Status dan batas interpretasi
 
-111 tes otomatis (mock/provider dan Streamlit AppTest) lulus pada versi final. Suite tidak memanggil model live. Pemeriksaan terarah dataset baru, OCR, browser, dan Docker dijelaskan pada [INTEGRATION_CHECKS.md](INTEGRATION_CHECKS.md). Ini belum mengukur akurasi umum. Konteks hit dilengkapi dengan halaman/bagian yang sama bila muat, dan batas lima ID mengakomodasi jawaban beberapa bagian. Masalah kualitas tidak diklaim tuntas untuk semua dokumen/pertanyaan.
+113 tes otomatis (mock/provider dan Streamlit AppTest) lulus pada versi final. Suite tidak memanggil model live. Pemeriksaan terarah dataset baru, OCR, browser, dan Docker dijelaskan pada [INTEGRATION_CHECKS.md](INTEGRATION_CHECKS.md). Ini belum mengukur akurasi umum. Konteks hit dilengkapi dengan halaman/bagian yang sama bila muat, dan batas lima ID mengakomodasi jawaban beberapa bagian. Masalah kualitas tidak diklaim tuntas untuk semua dokumen/pertanyaan.
 
 ## Batas interpretasi
 

@@ -1,5 +1,6 @@
 [server]
 headless = true
+maxUploadSize = 500
 # Transformer lazy imports are incompatible with Streamlit module introspection.
 # Restart the server explicitly after source changes.
 fileWatcherType = "none"

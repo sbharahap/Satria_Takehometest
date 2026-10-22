@@ -4,7 +4,7 @@ Tanggal: 22 Oktober 2026. Model lokal Qwen3:8b melalui LiteLLM/Ollama; embedding
 
 | Pemeriksaan | Hasil dan batas bukti |
 |---|---|
-| Suite otomatis | 111 pytest lulus: mock provider, ingestion, OCR failure/locator, CRUD, isolasi, revisi, antrean dan AppTest |
+| Suite otomatis | 113 pytest lulus: mock provider, ingestion, OCR failure/locator, CRUD, isolasi, revisi, antrean dan AppTest |
 | HR template: cuti + masa kerja | Live PASS: 12 hari kerja, setelah 12 bulan, sitasi PDF halaman 6 |
 | Follow-up waktu pengajuan cuti | Live PASS: seminggu sebelumnya, retrieval baru |
 | Tanggal pembayaran upah | Live PASS: tanggal 5; guard nominal tidak lagi menyalahartikan pertanyaan tanggal sebagai jumlah uang |
@@ -24,3 +24,7 @@ Model dapat memilih kutipan berlebihan atau tidak relevan meskipun provenance va
 | OCR → RAG di container | PASS: cuplikan satu halaman scan (halaman 14 sumber) di-OCR oleh language pack container, diindeks, lalu Qwen3 menjawab cuti 12 hari dengan sitasi. Nomor halaman cuplikan adalah 1 dan bukan diklaim sebagai nomor PDF lengkap |
 
 Browser diuji dengan Playwright/Chrome headless pada storage terisolasi; bukan rekaman pengujian manusia. Docker memakai Ollama di host, sehingga pengujian ini tidak membuktikan server chat berjalan sepenuhnya di container. File PDF demo dipasang read-only untuk pengujian; runtime/embedding dibuat dari kosong. Native clean clone tidak diulang terpisah.
+
+## Perbaikan navigasi dan target hapus
+
+113 tes lulus, termasuk target hapus yang berbeda dari agent sidebar dan navigasi editor dua halaman. Pada aplikasi utama, template PP tersimpan lengkap14halaman. Chrome pada agent HR PT ABC berhasil membuka halaman2 (PENDAHULUAN), serta memperlihatkan dropdown khusus target hapus. Data pengguna tidak dihapus. Ini pemeriksaan UI tanpa panggilan LLM.

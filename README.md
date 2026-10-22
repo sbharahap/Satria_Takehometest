@@ -1,4 +1,4 @@
-# Ruang Dokumen
+# Tanya AI
 
 Aplikasi web chatbot dokumen dengan agent HR dan Legal yang memiliki konfigurasi dan knowledge terpisah. Knowledge berasal dari PDF/DOCX yang diunggah; aplikasi tidak mengisi jawaban dari pengetahuan umum model.
 
@@ -128,7 +128,7 @@ uv run ruff format --check .
 
 `doctor` memeriksa SQLite/foreign key, Chroma, cache embedding, Ollama/model, dependensi dan kesiapan OCR tanpa mencetak key. Docker opsional untuk jalur native.
 
-Suite terbaru: **111 tes lulus**, termasuk ingestion PDF/DOCX, OCR error/locator, provider contract/error, CRUD/cascade, isolasi, revisi/editor, sitasi, multi-turn, antrean upload dan Streamlit AppTest. Provider pada suite ini memakai mock; ini bukan ukuran akurasi semua jawaban model live. Hasil pemeriksaan terarah dataset baru, browser dan setup ada di [catatan integrasi](docs/evaluation/INTEGRATION_CHECKS.md).
+Suite terbaru: **113 tes lulus**, termasuk ingestion PDF/DOCX, OCR error/locator, provider contract/error, CRUD/cascade, isolasi, revisi/editor, sitasi, multi-turn, antrean upload dan Streamlit AppTest. Provider pada suite ini memakai mock; ini bukan ukuran akurasi semua jawaban model live. Hasil pemeriksaan terarah dataset baru, browser dan setup ada di [catatan integrasi](docs/evaluation/INTEGRATION_CHECKS.md).
 
 Skrip `scripts.prepare_demo`, `smoke_local`, `smoke_docx`, dan `compare_local_models` tetap memakai korpus PT Vale **historis** agar evaluasi lama dapat direproduksi; bukan dataset demo utama yang sekarang. Skrip live bersifat opt-in dan tidak dipanggil oleh pytest. Data/log mentah berada di `data/` yang di-ignore.
 

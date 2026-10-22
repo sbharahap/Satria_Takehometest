@@ -12,7 +12,7 @@ from src.knowledge.embeddings import LocalEmbeddings
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Setup dan pemeriksaan Ruang Dokumen")
+    parser = argparse.ArgumentParser(description="Setup dan pemeriksaan Tanya AI")
     parser.add_argument("command", choices=["init", "doctor", "download-embedding"])
     args = parser.parse_args()
     try:

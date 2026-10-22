@@ -15,9 +15,9 @@ class OCRError(ValueError):
 @dataclass(frozen=True)
 class OCRConfig:
     language: str = "ind+eng"
-    max_pages: int = 40
+    max_pages: int = 200
     page_timeout: int = 45
-    total_timeout: int = 300
+    total_timeout: int = 600
     tessdata_dir: Path | None = None
 
 

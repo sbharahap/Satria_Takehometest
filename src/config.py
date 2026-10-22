@@ -15,7 +15,7 @@ class Settings(BaseSettings):
         env_file=PROJECT_ROOT / ".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    app_name: str = "Ruang Dokumen"
+    app_name: str = "Tanya AI"
     data_dir: Path = Path("data")
     sqlite_filename: str = "app.db"
     chroma_collection: str = "agent_documents"
@@ -40,10 +40,10 @@ class Settings(BaseSettings):
     retrieval_top_k: int = Field(default=4, ge=1, le=30)
     similarity_threshold: float = Field(default=0.82, ge=0, le=1)
     ocr_enabled: bool = True
-    ocr_max_pages: int = Field(default=40, ge=1, le=100)
+    ocr_max_pages: int = Field(default=200, ge=1, le=1000)
     ocr_tessdata_dir: Path | None = None
-    max_upload_mb: int = Field(default=20, ge=1, le=100)
-    provider_timeout_seconds: float = Field(default=60, gt=0, le=300)
+    max_upload_mb: int = Field(default=500, ge=1, le=1000)
+    provider_timeout_seconds: float = Field(default=180, gt=0, le=600)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     @field_validator("openai_api_key", "openrouter_api_key", "litellm_api_key", mode="before")

@@ -96,6 +96,14 @@ class ChatService:
             ).fetchone()
         return row[0] if row else None
 
+    def delete_conversation(self, agent_id: str, conversation_id: str) -> None:
+        self.agents.get(agent_id)
+        with self.database.connect() as connection:
+            connection.execute(
+                "DELETE FROM conversations WHERE id=? AND agent_id=?",
+                (conversation_id, agent_id),
+            )
+
     def conversations(self, agent_id: str) -> list[dict]:
         self.agents.get(agent_id)
         with self.database.connect() as connection:

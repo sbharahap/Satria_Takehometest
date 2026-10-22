@@ -201,3 +201,41 @@ def test_v2_migration_keeps_parser_snapshot_and_adds_revision_and_original_stora
     assert services.documents.get(hr.id, doc.id).revision == 1
     assert services.documents.extraction(hr.id, doc.id) == snapshot
     assert services.documents.original_file(hr.id, doc.id) is None
+
+
+def test_extraction_navigation_updates_editor_and_keeps_all_pages(rag, monkeypatch):  # noqa: F811
+    import io
+
+    import streamlit as st
+    from pypdf import PdfReader, PdfWriter
+    from streamlit.testing.v1 import AppTest
+
+    import src.bootstrap
+    from src.config import get_settings
+
+    services, _, _ = rag
+    owner = agent(services, "HR pages")
+    writer = PdfWriter()
+    for text in ("Halaman pertama kebijakan karyawan.", "Halaman kedua ketentuan cuti."):
+        writer.add_page(PdfReader(io.BytesIO(make_pdf(text))).pages[0])
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    doc = services.documents.upload(owner.id, "two-pages.pdf", buffer.getvalue())
+    monkeypatch.setattr(src.bootstrap, "initialize", lambda settings: services)
+    monkeypatch.setenv("DATA_DIR", str(services.database.path.parent))
+    get_settings.cache_clear()
+    st.cache_resource.clear()
+    try:
+        app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+        assert len(app.selectbox(key=f"extraction_page_{doc.id}").options) == 2
+        assert app.button(key=f"previous_page_{doc.id}").disabled
+        app.button(key=f"next_page_{doc.id}").click().run()
+        assert not app.exception
+        assert "Halaman kedua" in app.text_area(key=f"extraction_text_{doc.id}_1_1").value
+        assert app.button(key=f"next_page_{doc.id}").disabled
+        app.button(key=f"previous_page_{doc.id}").click().run()
+        assert "Halaman pertama" in app.text_area(key=f"extraction_text_{doc.id}_1_0").value
+        assert len(services.documents.extraction(owner.id, doc.id)) == 2
+    finally:
+        st.cache_resource.clear()
+        get_settings.cache_clear()

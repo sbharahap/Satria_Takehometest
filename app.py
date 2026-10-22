@@ -14,7 +14,7 @@ from src.providers.base import ProviderError
 from src.services.agents import AgentDeletionError, AgentNotFoundError
 from src.services.uploads import UploadQueue
 
-st.set_page_config(page_title="Ruang Dokumen", page_icon="📚", layout="wide")
+st.set_page_config(page_title="Tanya AI", page_icon="🤖", layout="wide")
 logger = logging.getLogger(__name__)
 
 
@@ -54,7 +54,7 @@ def show_notice(message: str) -> None:
 try:
     settings, services = resources()
 except Exception:
-    st.title("Ruang Dokumen")
+    st.title("Tanya AI")
     st.error("Aplikasi belum dapat membuka penyimpanan. Periksa konfigurasi dan jalankan doctor.")
     st.stop()
 
@@ -75,7 +75,7 @@ for selector_key in ("documents_agent", "chat_agent"):
     if st.session_state.get(selector_key) not in active_ids:
         st.session_state.pop(selector_key, None)
 with st.sidebar:
-    st.markdown("### 📚 Ruang Dokumen")
+    st.markdown("### 🤖 Tanya AI")
     st.caption("Asisten dengan sumber pengetahuan terpisah")
     selected_id = st.selectbox(
         "Agent aktif",
@@ -140,6 +140,8 @@ def upload_panel(agent_id):
         if busy
         else ("error" if result and result.errors else "done" if result else "idle")
     )
+    if st.session_state.get(f"upload_files_{agent_id}") and not busy:
+        phase = "idle"
     labels = {
         "idle": "Proses dokumen",
         "processing": "⏳ Memproses dokumen…",
@@ -164,7 +166,6 @@ def upload_panel(agent_id):
                 "Pilih PDF atau DOCX",
                 type=["pdf", "docx"],
                 accept_multiple_files=True,
-                max_upload_size=settings.max_upload_mb,
                 disabled=busy,
                 key=f"upload_files_{agent_id}",
             )
@@ -290,14 +291,18 @@ with manage:
         for key in list(st.session_state):
             if key.startswith("create_"):
                 del st.session_state[key]
-    with st.expander("Buat agent", expanded=not agents):
+    just_saved = st.session_state.pop("_create_saved", False)
+    with st.expander("Buat agent", expanded=not agents or just_saved):
+        if just_saved:
+            st.success("✅ Tersimpan! Data agent berhasil disimpan dan form telah dikosongkan.")
         values = agent_fields("create")
         if st.button("Simpan agent", type="primary"):
             if payload := validated_agent(values):
                 try:
                     services.agents.create(payload)
                     st.session_state["_reset_create"] = True
-                    show_notice("Agent berhasil dibuat.")
+                    st.session_state["_create_saved"] = True
+                    show_notice("✅ Tersimpan: Agent berhasil dibuat.")
                 except (OSError, RuntimeError, sqlite3.Error):
                     st.error("Agent belum dapat disimpan. Periksa penyimpanan aplikasi.")
 
@@ -315,13 +320,29 @@ with manage:
                     except sqlite3.Error:
                         st.error("Konfigurasi belum dapat disimpan. Periksa penyimpanan aplikasi.")
         with st.expander("Hapus agent"):
-            confirmed = st.checkbox(
-                "Hapus agent beserta seluruh dokumen dan percakapannya", key=f"confirm_{current.id}"
+            delete_key = "delete_agent_target"
+            if st.session_state.get(delete_key) not in {a.id for a in agents}:
+                st.session_state[delete_key] = selected_id
+            delete_id = st.selectbox(
+                "Pilih agent yang akan dihapus",
+                options=[a.id for a in agents],
+                format_func=lambda value: next(a.name for a in agents if a.id == value),
+                key=delete_key,
             )
-            if st.button("Hapus agent ini", disabled=not confirmed):
+            delete_target = services.agents.get(delete_id)
+            document_count = len(services.documents.list_documents(delete_id))
+            st.warning(
+                f"Agent yang akan dihapus: “{delete_target.name}”. "
+                f"{document_count} dokumen dan seluruh percakapannya akan ikut dihapus."
+            )
+            confirmed = st.checkbox(
+                f"Saya ingin menghapus “{delete_target.name}” beserta seluruh datanya",
+                key=f"confirm_{delete_id}",
+            )
+            if st.button(f"Hapus {delete_target.name}", disabled=not confirmed):
                 try:
-                    services.agents.delete(current.id)
-                    show_notice("Agent dan data terkait telah dihapus.")
+                    services.agents.delete(delete_id)
+                    show_notice(f"Agent “{delete_target.name}” dan data terkait telah dihapus.")
                 except (AgentDeletionError, AgentNotFoundError) as error:
                     st.error(str(error))
     pending = [
@@ -380,13 +401,41 @@ with documents:
                             "PDF asli tetap disimpan tanpa perubahan. "
                             "Periksa kembali hasil OCR sebelum digunakan sebagai knowledge."
                         )
+                        page_key = f"extraction_page_{doc.id}"
+                        if st.session_state.get(page_key, 0) >= len(pages):
+                            st.session_state[page_key] = 0
+                        current_index = st.session_state.get(page_key, 0)
+                        st.caption(
+                            f"{len(pages)} halaman/bagian teks berhasil diekstrak. "
+                            "Pratinjau dan editor menampilkan satu halaman/bagian yang dipilih."
+                        )
+
+                        def change_extraction_page(key, index):
+                            st.session_state[key] = index
+
+                        previous_page, page_position, next_page = st.columns([1, 2, 1])
+                        previous_page.button(
+                            "← Sebelumnya",
+                            key=f"previous_page_{doc.id}",
+                            disabled=current_index == 0,
+                            on_click=change_extraction_page,
+                            args=(page_key, current_index - 1),
+                        )
+                        page_position.caption(f"Bagian {current_index + 1} dari {len(pages)}")
+                        next_page.button(
+                            "Berikutnya →",
+                            key=f"next_page_{doc.id}",
+                            disabled=current_index == len(pages) - 1,
+                            on_click=change_extraction_page,
+                            args=(page_key, current_index + 1),
+                        )
                         page_index = st.selectbox(
                             "Halaman atau bagian",
                             options=range(len(pages)),
                             format_func=lambda i, pages=pages: (
                                 pages[i].get("locator") or f"Halaman PDF {pages[i]['page']}"
                             ),
-                            key=f"extraction_page_{doc.id}",
+                            key=page_key,
                         )
                         selected_page = pages[page_index]
                         original = services.documents.original_file(document_selected_id, doc.id)
@@ -410,8 +459,22 @@ with documents:
                                     except DocumentError as error:
                                         st.error(str(error))
                                 else:
-                                    st.info(
-                                        "Pratinjau visual DOCX belum tersedia. Unduh file aslinya."
+                                    st.caption(
+                                        f"{selected_page.get('locator') or 'Naskah DOCX'}. "
+                                        "Viewer menampilkan teks terformat dokumen asli."
+                                    )
+                                    docx_text = selected_page["text"]
+                                    box_style = (
+                                        "background-color: white; color: #1e293b; "
+                                        "padding: 20px 24px; border-radius: 6px; "
+                                        "border: 1px solid #cbd5e1; height: 480px; "
+                                        "overflow-y: auto; font-family: 'Times New Roman', serif; "
+                                        "font-size: 15px; line-height: 1.6; white-space: pre-wrap; "
+                                        "box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);"
+                                    )
+                                    st.markdown(
+                                        f'<div style="{box_style}">\n{docx_text}\n</div>',
+                                        unsafe_allow_html=True,
                                     )
                                 st.download_button(
                                     "Unduh dokumen asli",
@@ -432,28 +495,48 @@ with documents:
                                 )
                         with editor:
                             st.markdown(f"**Teks kerja · revisi {doc.revision}**")
+                            st.caption(
+                                "Periksa teks hasil ekstraksi terhadap dokumen asli. "
+                                "Simpan tiap halaman sebelum berpindah."
+                            )
                             editor_key = f"extraction_text_{doc.id}_{doc.revision}_{page_index}"
-                            if doc.file_type == "pdf" and st.button(
-                                "Rapikan pemenggalan baris", key=f"normalize_{doc.id}_{page_index}"
-                            ):
-                                draft = st.session_state.get(editor_key, selected_page["text"])
-                                st.session_state[editor_key] = normalize_pdf_text(draft)
+                            pending_key = f"pending_text_{editor_key}"
+                            just_normalized = False
+                            if pending_key in st.session_state:
+                                st.session_state[editor_key] = st.session_state.pop(pending_key)
+                                just_normalized = True
+                            elif editor_key not in st.session_state:
+                                st.session_state[editor_key] = selected_page["text"]
+
+                            if just_normalized:
+                                st.info(
+                                    "✨ Baris telah dirapikan. "
+                                    "Klik 'Simpan koreksi dan indeks ulang' untuk menerapkan."
+                                )
+
                             with st.form(f"edit_text_{doc.id}_{doc.revision}_{page_index}"):
                                 edited_text = st.text_area(
                                     "Teks hasil ekstraksi",
-                                    value=selected_page["text"],
                                     height=480,
                                     key=editor_key,
                                     disabled=doc.status == "processing",
                                 )
-                                save_text = st.form_submit_button(
+                                col_save, col_norm = st.columns([2, 1])
+                                save_text = col_save.form_submit_button(
                                     "Simpan koreksi dan indeks ulang",
+                                    type="primary",
                                     disabled=doc.status == "processing",
                                 )
-                            st.caption(
-                                "Belum disimpan sampai tombol simpan ditekan. "
-                                "Simpan tiap halaman sebelum berpindah."
-                            )
+                                normalize_clicked = col_norm.form_submit_button(
+                                    "Rapikan baris",
+                                    disabled=doc.status == "processing",
+                                    help="Gabungkan pemenggalan baris visual (hyphen wrap)",
+                                )
+                            if normalize_clicked:
+                                draft = edited_text or selected_page["text"]
+                                st.session_state[pending_key] = normalize_pdf_text(draft)
+                                st.rerun()
+                            st.caption("Belum disimpan sampai tombol simpan ditekan.")
                             if save_text:
                                 try:
                                     with st.spinner("Menyimpan koreksi dan mengindeks ulang…"):
@@ -522,7 +605,22 @@ with chat:
                 chat_selected_id
             ) or services.chat.new_conversation(chat_selected_id)
         history_key = f"history_{chat_selected_id}"
-        if st.button("Percakapan baru", key=f"new_chat_{chat_selected_id}"):
+        st.markdown(
+            """<style>
+            div[data-testid="stButton"] button:has(p:contains("Buat Percakapan Baru")) {
+                background-color: #dc2626 !important;
+                color: white !important;
+                border-color: #dc2626 !important;
+                font-weight: 600;
+            }
+            div[data-testid="stButton"] button:has(p:contains("Buat Percakapan Baru")):hover {
+                background-color: #b91c1c !important;
+                border-color: #b91c1c !important;
+            }
+            </style>""",
+            unsafe_allow_html=True,
+        )
+        if st.button("➕ Buat Percakapan Baru", key=f"new_chat_{chat_selected_id}"):
             new_id = services.chat.new_conversation(chat_selected_id)
             st.session_state[conversation_key] = new_id
             st.session_state[history_key] = new_id
@@ -531,17 +629,33 @@ with chat:
         by_id = {item["id"]: item for item in conversations}
         if st.session_state.get(history_key) not in by_id:
             st.session_state[history_key] = st.session_state[conversation_key]
-        conversation_id = st.selectbox(
-            "Riwayat percakapan",
-            options=list(by_id),
-            key=history_key,
-            format_func=lambda value: (
-                by_id[value]["title"]
-                + " · "
-                + by_id[value]["created_at"][:16].replace("T", " ")
-                + " UTC"
-            ),
-        )
+        col_history, col_del_conv = st.columns([5, 1])
+        with col_history:
+            conversation_id = st.selectbox(
+                "Riwayat percakapan",
+                options=list(by_id),
+                key=history_key,
+                format_func=lambda value: (
+                    by_id[value]["title"]
+                    + " · "
+                    + by_id[value]["created_at"][:16].replace("T", " ")
+                    + " UTC"
+                ),
+            )
+        with col_del_conv:
+            st.write("")
+            st.write("")
+            if st.button(
+                "🗑️ Hapus",
+                key=f"del_conv_{chat_selected_id}",
+                disabled=not by_id,
+                help="Hapus riwayat percakapan yang dipilih",
+            ):
+                if conversation_id:
+                    services.chat.delete_conversation(chat_selected_id, conversation_id)
+                    st.session_state.pop(conversation_key, None)
+                    st.session_state.pop(history_key, None)
+                    show_notice("Percakapan berhasil dihapus.")
         st.session_state[conversation_key] = conversation_id
         active_documents = services.documents.ready_versions(chat_selected_id)
         if not active_documents:

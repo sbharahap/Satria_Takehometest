@@ -25,7 +25,7 @@ def test_create_edit_delete_agent_in_ui(tmp_path, monkeypatch):
         next(button for button in app.button if button.label == "Simpan perubahan").click().run()
         assert app.selectbox(key="active_agent").options == ["HR diperbarui"]
         app.checkbox(key=f"confirm_{agent_id}").check().run()
-        next(button for button in app.button if button.label == "Hapus agent ini").click().run()
+        next(button for button in app.button if button.label == "Hapus HR diperbarui").click().run()
         assert not app.exception
         assert app.selectbox(key="active_agent").options == []
     finally:
@@ -133,6 +133,31 @@ def test_saved_conversations_can_be_selected_again(rag, monkeypatch):  # noqa: F
         assert not app.exception
         assert app.session_state[f"conversation_{owner.id}"] == old
         assert any(m.value == "Berapa jumlah cuti di dokumen?" for m in app.markdown)
+    finally:
+        st.cache_resource.clear()
+        get_settings.cache_clear()
+
+
+def test_delete_target_is_explicit_and_independent_of_active_agent(rag, monkeypatch):  # noqa: F811
+    import src.bootstrap
+
+    services, _, _ = rag
+    first, second = agent(services, "HR keep"), agent(services, "Legal remove")
+    monkeypatch.setattr(src.bootstrap, "initialize", lambda settings: services)
+    monkeypatch.setenv("DATA_DIR", str(services.database.path.parent))
+    get_settings.cache_clear()
+    st.cache_resource.clear()
+    try:
+        app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+        app.selectbox(key="delete_agent_target").select(second.id).run()
+        assert app.selectbox(key="active_agent").value == first.id
+        assert any("“Legal remove”" in warning.value for warning in app.warning)
+        button = next(b for b in app.button if b.label == "Hapus Legal remove")
+        assert button.disabled
+        app.checkbox(key=f"confirm_{second.id}").check().run()
+        next(b for b in app.button if b.label == "Hapus Legal remove").click().run()
+        assert not app.exception
+        assert [a.id for a in services.agents.list_agents()] == [first.id]
     finally:
         st.cache_resource.clear()
         get_settings.cache_clear()
