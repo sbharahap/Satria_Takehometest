@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.database.connection import Database
-from src.knowledge.parsing import DocumentError
+from src.knowledge.parsing import DocumentError, normalize_pdf_text
 from src.models import Citation
 from src.providers.base import ChatResponse, ProviderError
 from src.services.chat import UNVERIFIED
@@ -37,6 +37,19 @@ def test_extraction_is_original_prechunk_text_isolated_and_cascades(rag):  # noq
     services.agents.delete(hr.id)
     with services.database.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM document_extractions").fetchone()[0] == 0
+
+
+def test_pdf_normalizer_joins_soft_wraps_and_keeps_paragraph_list_and_hyphenation():
+    text = (
+        "Kebijakan ini berlaku untuk seluruh tenaga\n"
+        "kerja dan pihak terkait.\n\n"
+        "1. Ketentuan utama\nRincian terpisah.\n"
+        "anti-\nkorupsi"
+    )
+    assert normalize_pdf_text(text) == (
+        "Kebijakan ini berlaku untuk seluruh tenaga kerja dan pihak terkait.\n\n"
+        "1. Ketentuan utama Rincian terpisah.\nantikorupsi"
+    )
 
 
 def test_parse_success_embedding_failure_remains_reviewable_but_corrupt_has_no_text(rag):  # noqa: F811

@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 
+import httpx
 import streamlit as st
 from pydantic import ValidationError
 
@@ -29,6 +30,16 @@ def local_status(base_url: str, model: str):
     return ollama_status(Settings(ollama_base_url=base_url, litellm_model=model))
 
 
+@st.cache_data(ttl=30)
+def installed_local_models(base_url: str) -> list[str]:
+    try:
+        response = httpx.get(f"{base_url}/api/tags", timeout=3, trust_env=False)
+        response.raise_for_status()
+        return [f"ollama_chat/{item['name']}" for item in response.json().get("models", [])]
+    except (httpx.HTTPError, ValueError, KeyError):
+        return []
+
+
 def show_notice(message: str) -> None:
     st.session_state["notice"] = message
     st.rerun()
@@ -53,6 +64,10 @@ if agents and st.session_state.get("active_agent") not in {agent.id for agent in
     st.session_state["active_agent"] = agents[0].id
 elif not agents:
     st.session_state.pop("active_agent", None)
+active_ids = {agent.id for agent in agents}
+for selector_key in ("documents_agent", "chat_agent"):
+    if st.session_state.get(selector_key) not in active_ids:
+        st.session_state.pop(selector_key, None)
 with st.sidebar:
     st.markdown("### 📚 Ruang Dokumen")
     st.caption("Asisten dengan sumber pengetahuan terpisah")
@@ -97,7 +112,11 @@ st.title(settings.app_name)
 st.write("Kelola asisten dan sumber pengetahuannya dalam satu ruang kerja.")
 if notice := st.session_state.pop("notice", None):
     st.success(notice)
-manage, documents, chat = st.tabs(["Kelola agent", "Dokumen", "Percakapan"])
+manage, documents, chat = st.tabs(
+    ["Kelola agent", "Dokumen", "Percakapan"], key="main_tabs", on_change="rerun"
+)
+
+DEFAULT_AGENT_INSTRUCTIONS = "Gunakan sumber aktif agent ini dan jawab dalam Bahasa Indonesia."
 
 
 def agent_fields(key: str, current=None):
@@ -106,13 +125,12 @@ def agent_fields(key: str, current=None):
         "Deskripsi", value=current.description if current else "", key=f"{key}_description"
     )
     instructions = st.text_area(
-        "Instruksi agent",
+        "Instruksi tambahan (opsional)",
         height=130,
-        value=current.instructions
-        if current
-        else (
-            "Jawab dalam Bahasa Indonesia berdasarkan dokumen aktif milik agent ini. "
-            "Sertakan sumber. Jika bukti tidak tersedia, nyatakan tidak tahu."
+        value=current.instructions if current else "",
+        placeholder="Contoh: Utamakan kebijakan keselamatan kerja.",
+        help=(
+            "Aturan dasar grounding, sitasi, bahasa, dan pengakuan jika bukti kurang selalu aktif."
         ),
         key=f"{key}_instructions",
     )
@@ -128,11 +146,33 @@ def agent_fields(key: str, current=None):
     if previous_provider != provider.value:
         st.session_state[f"{key}_model"] = default_models[provider.value]
     st.session_state[f"{key}_provider_seen"] = provider.value
-    model = st.text_input(
+    if provider.value == "litellm":
+        choices = list(
+            dict.fromkeys(
+                [
+                    *installed_local_models(settings.ollama_base_url),
+                    settings.litellm_model,
+                    settings.local_fallback_model,
+                ]
+            )
+        )
+    elif provider.value == "openrouter":
+        choices = list(dict.fromkeys([settings.openrouter_model, "openrouter/free"]))
+    else:
+        choices = [settings.openai_model]
+    if current and current.model not in choices:
+        choices.insert(0, current.model)
+    selected_model = st.session_state.get(
+        f"{key}_model", current.model if current else default_models[initial]
+    )
+    if selected_model not in choices:
+        selected_model = default_models[provider.value]
+    model = st.selectbox(
         "Model",
-        value=current.model if current else default_models[initial],
+        options=choices,
+        index=choices.index(selected_model),
         key=f"{key}_model",
-        help="Gunakan ID model yang tersedia pada provider pilihan.",
+        help="Model lokal ditampilkan dari model yang terpasang di Ollama.",
     )
     st.caption("Model bawaan: " + " · ".join(f"{p}: {m}" for p, m in default_models.items()))
     return name, description, instructions, provider, model
@@ -144,7 +184,7 @@ def validated_agent(values):
         return AgentInput(
             name=name,
             description=description,
-            instructions=instructions,
+            instructions=instructions.strip() or DEFAULT_AGENT_INSTRUCTIONS,
             provider=provider,
             model=model,
         )
@@ -225,13 +265,23 @@ with manage:
 
 with documents:
     st.subheader("Dokumen agent")
-    if selected_id:
-        st.caption(f"Agent: {services.agents.get(selected_id).name}")
+    if agents:
+        document_selected_id = st.selectbox(
+            "Pilih agent untuk dokumen",
+            options=[a.id for a in agents],
+            index=next((i for i, a in enumerate(agents) if a.id == selected_id), 0),
+            format_func=lambda value: next(a.name for a in agents if a.id == value),
+            key="documents_agent",
+        )
+    else:
+        document_selected_id = None
+    if document_selected_id:
+        st.caption(f"Agent: {services.agents.get(document_selected_id).name}")
         st.caption(
             "PDF atau DOCX dengan teks, maksimal "
             f"{settings.max_upload_mb} MB/file. OCR belum tersedia."
         )
-        with st.form(f"upload_{selected_id}", clear_on_submit=True):
+        with st.form(f"upload_{document_selected_id}", clear_on_submit=True):
             uploads = st.file_uploader(
                 "Pilih PDF atau DOCX",
                 type=["pdf", "docx"],
@@ -245,10 +295,12 @@ with documents:
             for upload in uploads:
                 with st.status(f"Memproses {upload.name}…", expanded=True) as status:
                     try:
-                        doc = services.documents.upload(selected_id, upload.name, upload.getvalue())
+                        doc = services.documents.upload(
+                            document_selected_id, upload.name, upload.getvalue()
+                        )
                         if doc.status == "ready":
                             status.update(
-                                label=f"{doc.filename} siap · {doc.chunks_count} chunk",
+                                label=f"✅ SELESAI · {doc.filename} · {doc.chunks_count} potongan",
                                 state="complete",
                                 expanded=False,
                             )
@@ -258,7 +310,7 @@ with documents:
                     except (DocumentError, AgentNotFoundError) as error:
                         st.error(str(error))
                         status.update(label="Upload gagal", state="error")
-        uploaded_docs = services.documents.list_documents(selected_id)
+        uploaded_docs = services.documents.list_documents(document_selected_id)
         if not uploaded_docs:
             st.info("Belum ada dokumen. Unggah PDF atau DOCX untuk menyiapkan knowledge agent ini.")
         for doc in uploaded_docs:
@@ -272,7 +324,7 @@ with documents:
                     if doc.error_message:
                         st.error(doc.error_message)
                 with st.expander("Tinjau dan koreksi hasil ekstraksi"):
-                    pages = services.documents.extraction(selected_id, doc.id)
+                    pages = services.documents.extraction(document_selected_id, doc.id)
                     if pages:
                         st.caption(
                             "Bandingkan dengan dokumen asli, lalu koreksi kesalahan ekstraksi. "
@@ -280,6 +332,12 @@ with documents:
                             "dan mengindeks ulang. "
                             "PDF asli tetap disimpan tanpa perubahan. OCR belum tersedia."
                         )
+                        if doc.file_type == "pdf":
+                            st.caption(
+                                "Ekstraksi PDF baru merapikan pemenggalan baris visual. "
+                                "Dokumen lama tidak diparse ulang otomatis; hapus dan unggah "
+                                "kembali untuk menerapkan normalisasi baru."
+                            )
                         page_index = st.selectbox(
                             "Halaman atau bagian",
                             options=range(len(pages)),
@@ -289,7 +347,7 @@ with documents:
                             key=f"extraction_page_{doc.id}",
                         )
                         selected_page = pages[page_index]
-                        original = services.documents.original_file(selected_id, doc.id)
+                        original = services.documents.original_file(document_selected_id, doc.id)
                         preview, editor = st.columns(2)
                         with preview:
                             st.markdown("**Dokumen asli**")
@@ -352,7 +410,7 @@ with documents:
                                 try:
                                     with st.spinner("Menyimpan koreksi dan mengindeks ulang…"):
                                         updated = services.documents.edit_page(
-                                            selected_id,
+                                            document_selected_id,
                                             doc.id,
                                             page_index,
                                             edited_text,
@@ -374,7 +432,7 @@ with documents:
                                     "Lihat teks parser awal", key=f"raw_parser_{doc.id}"
                                 ):
                                     raw = services.documents.extraction(
-                                        selected_id, doc.id, original=True
+                                        document_selected_id, doc.id, original=True
                                     )
                                     st.text(raw[page_index]["text"])
                     else:
@@ -386,7 +444,7 @@ with documents:
                 with right:
                     if st.button("Hapus", key=f"delete_doc_{doc.id}"):
                         try:
-                            services.documents.delete(selected_id, doc.id)
+                            services.documents.delete(document_selected_id, doc.id)
                             show_notice(
                                 "Dokumen dihapus dan tidak lagi digunakan untuk jawaban baru."
                             )
@@ -397,19 +455,29 @@ with documents:
 
 with chat:
     st.subheader("Percakapan")
-    if selected_id:
-        current = services.agents.get(selected_id)
+    if agents:
+        chat_selected_id = st.selectbox(
+            "Pilih agent untuk percakapan",
+            options=[a.id for a in agents],
+            index=next((i for i, a in enumerate(agents) if a.id == selected_id), 0),
+            format_func=lambda value: next(a.name for a in agents if a.id == value),
+            key="chat_agent",
+        )
+    else:
+        chat_selected_id = None
+    if chat_selected_id:
+        current = services.agents.get(chat_selected_id)
         st.caption(f"{current.name} · {current.provider.value} · {current.model}")
-        conversation_key = f"conversation_{selected_id}"
+        conversation_key = f"conversation_{chat_selected_id}"
         if conversation_key not in st.session_state:
             st.session_state[conversation_key] = services.chat.latest_conversation(
-                selected_id
-            ) or services.chat.new_conversation(selected_id)
-        if st.button("Percakapan baru", key=f"new_chat_{selected_id}"):
-            st.session_state[conversation_key] = services.chat.new_conversation(selected_id)
+                chat_selected_id
+            ) or services.chat.new_conversation(chat_selected_id)
+        if st.button("Percakapan baru", key=f"new_chat_{chat_selected_id}"):
+            st.session_state[conversation_key] = services.chat.new_conversation(chat_selected_id)
             st.rerun()
         conversation_id = st.session_state[conversation_key]
-        active_documents = services.documents.ready_versions(selected_id)
+        active_documents = services.documents.ready_versions(chat_selected_id)
         if not active_documents:
             st.info("Belum ada dokumen siap. Agent akan menyatakan informasi belum tersedia.")
 
@@ -437,21 +505,75 @@ with chat:
                     )
                     st.text(citation["text"])
 
-        for message in services.chat.messages(selected_id, conversation_id):
+        for message in services.chat.messages(chat_selected_id, conversation_id):
             with st.chat_message(message["role"]):
                 if message["role"] == "assistant":
                     render_answer(message)
                 else:
                     st.markdown(message["content"])
+        if services.chat.settings.answer_mode == "extractive":
+            st.caption(
+                "Jawaban memakai kutipan teks dokumen. Periksa sumber untuk konteks lengkap."
+            )
+        reasoning_mode = st.radio(
+            "Mode jawaban",
+            options=["fast", "thinking"],
+            format_func=lambda mode: (
+                "Fast" if mode == "fast" else "Thinking · lebih teliti, biasanya lebih lambat"
+            ),
+            horizontal=True,
+            key=f"reasoning_mode_{chat_selected_id}",
+            help=(
+                "Thinking meminta model meluangkan lebih banyak token untuk memilih bukti. "
+                "Teks penalaran internal tidak ditampilkan."
+            ),
+        )
         if question := st.chat_input(
-            "Tanyakan isi dokumen agent ini", max_chars=2000, key=f"question_{selected_id}"
+            "Tanyakan isi dokumen agent ini", max_chars=2000, key=f"question_{chat_selected_id}"
         ):
             with st.chat_message("user"):
                 st.markdown(question)
             with st.chat_message("assistant"), st.spinner("Mencari sumber dan menyusun jawaban…"):
                 try:
-                    answer = services.chat.ask(selected_id, conversation_id, question)
+                    answer = services.chat.ask(
+                        chat_selected_id, conversation_id, question, reasoning_mode=reasoning_mode
+                    )
                     render_answer(answer)
+                    diagnostic_messages = {
+                        "no_ready_documents": (
+                            "Agent ini belum memiliki dokumen siap. Periksa status dokumen "
+                            "atau unggah file terlebih dahulu."
+                        ),
+                        "no_retrieval_results": (
+                            "Pencarian belum menemukan bagian yang cocok. Coba istilah yang "
+                            "dipakai di dokumen, pilih agent yang benar, atau periksa "
+                            "hasil ekstraksi."
+                        ),
+                        "below_similarity_threshold": (
+                            "Ada bagian yang mirip, tetapi skornya di bawah ambang pencarian. "
+                            "Periksa pertanyaan atau koreksi teks ekstraksi jika hasil "
+                            "parser kurang rapi."
+                        ),
+                        "requested_value_not_found": (
+                            "Bagian yang ditemukan tidak memuat jenis nilai yang diminta "
+                            "(misalnya nominal atau jumlah hari), jadi sistem memilih "
+                            "untuk tidak menebak."
+                        ),
+                        "evidence_not_selectable": (
+                            "Bagian yang ditemukan terlalu terpotong untuk dikutip dengan aman. "
+                            "Tinjau atau koreksi teks ekstraksi."
+                        ),
+                        "unresolved_reference": (
+                            "Rujukan percakapan ini tidak dapat dipahami dari jawaban bersumber "
+                            "yang masih aktif. Ajukan ulang pertanyaan dengan menyebut topiknya."
+                        ),
+                        "model_abstained": (
+                            "Model memilih tidak menjawab dari bagian yang tersedia. "
+                            "Periksa pertanyaan dan hasil ekstraksi dokumen."
+                        ),
+                    }
+                    if answer.get("diagnostic") in diagnostic_messages:
+                        st.info(diagnostic_messages[answer["diagnostic"]])
                 except (ProviderError, ValueError) as error:
                     st.error(str(error))
                 except Exception as error:

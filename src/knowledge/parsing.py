@@ -17,6 +17,21 @@ class PageText:
     locator: str | None = None
 
 
+def normalize_pdf_text(text: str) -> str:
+    """Join visual line wraps while retaining paragraphs and common list boundaries."""
+    text = text.replace("\x00", " ").replace("\r", "")
+    text = re.sub(r"(?<=[A-Za-zÀ-ÿ])-\n(?=[A-Za-zÀ-ÿ])", "", text)
+    text = re.sub(
+        r"(?<![.!?:;])\n(?!\n|\s*[•●▪◦]|\s*\(?\d+[.)]|\s*\([ivx]+\))",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"[^\S\n]+", " ", text)
+    text = re.sub(r"[ \t]*\n[ \t]*", "\n", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def parse_pdf(data: bytes) -> list[PageText]:
     if not data:
         raise DocumentError("File kosong. Unggah PDF yang memiliki teks.")
@@ -32,7 +47,8 @@ def parse_pdf(data: bytes) -> list[PageText]:
         total = 0
         for number, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or ""
-            text = re.sub(r"[^\S\n]+", " ", text.replace("\x00", " ")).strip()
+            # PDF extractors often put visual line wraps into the text stream.
+            text = normalize_pdf_text(text)
             total += len(text)
             if total > 1_000_000:
                 raise DocumentError("Teks PDF terlalu besar. Pecah menjadi beberapa dokumen.")

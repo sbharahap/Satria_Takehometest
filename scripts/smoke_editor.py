@@ -44,6 +44,7 @@ def main():
     assert answer["citations"] and "tahun" in answer["content"].lower()
     assert all(c["revision"] == 2 for c in answer["citations"])
     report = {
+        "answer_mode": settings.answer_mode,
         "correction": "whitespace only, no company policy facts changed",
         "revision": updated.revision,
         "original_file_unchanged": True,
@@ -51,7 +52,7 @@ def main():
     }
     (scratch / "results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps({"answer": answer["content"], "revision": updated.revision}))
-    print(f"PASS: edited text -> reindex -> local cited RAG and verifier. {scratch}")
+    print(f"PASS: edited text -> reindex -> cited RAG ({settings.answer_mode}). {scratch}")
 
 
 if __name__ == "__main__":

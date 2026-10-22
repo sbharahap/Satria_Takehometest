@@ -37,7 +37,11 @@ class OpenRouterProvider(ChatProvider):
                         "messages": request.messages,
                         "max_tokens": request.max_tokens,
                         "temperature": request.temperature,
-                        "reasoning": {"enabled": self.settings.openrouter_reasoning_enabled},
+                        "reasoning": {
+                            "enabled": request.reasoning_mode == "thinking"
+                            if request.reasoning_mode is not None
+                            else self.settings.openrouter_reasoning_enabled
+                        },
                         **(
                             {"response_format": {"type": "json_object"}}
                             if request.json_mode

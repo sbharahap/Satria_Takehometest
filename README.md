@@ -4,6 +4,8 @@ Aplikasi web multi-agent document chatbot untuk take-home AI Engineer. Setiap ag
 
 **Status: alur PDF/DOCX RAG berjalan.** Buat/pilih agent → upload beberapa PDF/DOCX → ekstraksi halaman/bagian → chunking/embedding → retrieval terisolasi → jawaban bersitasi melalui provider nyata. UI menyediakan edit/hapus agent, status dokumen, hapus dokumen, percakapan persisten, percakapan baru, dan potongan sumber. DOCX mendukung paragraf dan tabel dengan sitasi bagian/paragraf/baris. OCR belum tersedia.
 
+Instruksi dasar untuk memakai Bahasa Indonesia, hanya memakai knowledge aktif milik agent, memberi sitasi, dan mengakui ketika bukti tidak cukup selalu datang dari system prompt aplikasi. Kolom agent adalah instruksi tambahan dan boleh dikosongkan. Dropdown model lokal mengambil daftar dari Ollama; Dokumen dan Percakapan masing-masing menyediakan pemilih agent. Riwayat pesan dan percakapan disimpan di SQLite dan dibuka lagi saat aplikasi dimuat.
+
 ## Menjalankan secara lokal
 
 Prasyarat: [uv](https://docs.astral.sh/uv/) dan [Ollama](https://ollama.com/) terpasang; daemon Ollama berjalan. Jalankan dari root repository:
@@ -31,7 +33,7 @@ Prasyarat: [uv](https://docs.astral.sh/uv/) dan [Ollama](https://ollama.com/) te
    ```
    Buka [localhost:8501](http://localhost:8501). Penyimpanan dibuat saat aplikasi dibuka.
 
-Model Qwen3 8B sekitar 5,2 GB; embedding memerlukan unduhan tambahan. Qwen3 dipilih setelah smoke test dokumen Indonesia; thinking dinonaktifkan oleh adapter lokal. UI pengelolaan agent dapat berjalan tanpa model, sedangkan indexing dan chat memerlukan model yang sesuai. Agent adalah konfigurasi asisten yang dibuat di UI, bukan paket yang diunduh.
+Model Qwen3 8B sekitar 5,2 GB; embedding memerlukan unduhan tambahan. Qwen3 menjadi pilihan awal, sementara local model dropdown menampilkan model yang terpasang di Ollama. Mode Fast/Thinking tersedia di percakapan; Thinking memakai dukungan reasoning provider jika tersedia dan meminta lebih banyak token, sehingga lebih lambat dan tidak menjamin jawaban lebih benar. Teks penalaran internal tidak ditampilkan. UI pengelolaan agent dapat berjalan tanpa model, sedangkan indexing dan chat memerlukan model yang sesuai. Agent adalah konfigurasi asisten yang dibuat di UI, bukan paket yang diunduh.
 
 ## Pemeriksaan dan pengujian
 
@@ -45,7 +47,7 @@ uv run ruff format --check .
 
 `doctor` memeriksa Python/dependensi, integritas SQLite, foreign key, Chroma, cache embedding, koneksi Ollama, model yang tersedia, serta status Docker. Exit code 1 berarti prasyarat pengembangan lokal belum lengkap; key cloud dan Docker opsional untuk jalur native. Nilai key tidak dicetak. Deteksi cache membaca file model; `download-embedding` melakukan inference embedding sebenarnya. Probe Ollama pada doctor membaca daftar model, bukan menguji generasi.
 
-78 test otomatis lulus. Cakupannya mencakup CRUD/persistensi, foreign key lintas agent, cascade/retry cleanup, PDF/DOCX rusak/kosong/tanpa teks, tabel DOCX, ingestion gagal, banyak dokumen, isolasi retrieval dua arah, delete pada sesi lama, output JSON/sitasi tidak valid, error provider, serta interaksi chat/sumber/delete di Streamlit AppTest. Adapter OpenAI dan OpenRouter memiliki SDK/HTTP mock untuk error dan kontrak; hasil live dicatat terpisah.
+99 test otomatis lulus pada versi ini, termasuk pemeriksaan normalisasi PDF soft-wrap, closed-set evidence, pemilih agent independen pada Dokumen/Percakapan, CRUD/persistensi, isolasi agent, ingestion, provider, revisi/sitasi, dan Streamlit AppTest. Suite memakai mock provider; ini tidak mengukur kualitas live model untuk setiap pertanyaan. Status upload menampilkan spinner dan tanda selesai.
 
 Untuk smoke test live lokal dengan kebijakan publik PT Vale:
 
@@ -108,7 +110,7 @@ flowchart LR
     B --> C[Retrieve: agent + dokumen ready]
     C --> D[Generate melalui ChatProvider]
     D --> E[Validate citations dan sumber aktif]
-    E --> V[Verify claims: model lokal dan kutipan bukti]
+    E --> V[Verify evidence: kutipan literal atau verifier opsional]
     V --> F[Simpan pasangan pesan di SQLite]
 ```
 
@@ -118,7 +120,9 @@ PDF dibaca dengan pypdf, mempertahankan nomor halaman **PDF yang diunggah**. Chu
 
 DOCX dibaca dengan python-docx sesuai urutan body: heading, paragraf, tabel, dan tabel bersarang. Baris pertama tabel yang berisi teks menjadi konteks bagi baris data agar header saja tidak menutupi nilai yang ditanyakan; semua teks baris pertama tetap dipertahankan. Sitasi memakai bagian, rentang paragraf, atau tabel/baris; aplikasi tidak mengarang nomor halaman Word. Header/footer, text box, komentar, dan perubahan terlacak belum diekstrak secara khusus. Isi ZIP dibatasi 50MB/5000 entry untuk membatasi ekspansi file. File Word lama `.doc`, DOCX terenkripsi, dan dokumen yang hanya berisi gambar ditolak dengan pesan yang jelas. Metadata vektor PDF lama tetap dapat dibaca tanpa reindex; migrasi SQLite bersifat additive dan berjalan saat startup.
 
-Node generate meminta JSON `status/answer/source_ids`. Keputusan `unknown` menghasilkan penolakan standar. ID sumber harus berasal dari hasil retrieval aktif; output tidak valid gagal menjadi jawaban bersumber. Aplikasi memetakan ID tersebut ke nama file, halaman, dan potongan teks. Setelah validasi ID/sumber aktif, verifier lokal memeriksa dukungan seluruh klaim terhadap sumber yang dikutip. Verifier harus menyertakan kutipan bukti; kode memeriksa setiap kutipan benar-benar terdapat dalam sumber yang sesuai. Jawaban ditolak jika verdict negatif, JSON tidak valid, bukti tidak cocok, atau verifier gagal. Pemeriksaan semantik oleh LLM tetap dapat salah; ini mitigasi tambahan dan bukan jaminan bebas halusinasi. User tetap dapat memeriksa potongan sumber.
+Mode bawaan `ANSWER_MODE=extractive` meminta model memilih maksimal tiga ID bukti. Kode membentuk jawaban dari teks bukti yang tersedia, dengan normalisasi whitespace, lalu memetakan sitasi ke nama file dan halaman/bagian. Teks jawaban bebas dari model tidak dipakai. Nama file/alias eksplisit membatasi retrieval ke dokumen yang cocok; pencocokan ini berdasarkan nama file, bukan pemahaman semua judul PDF. Pertanyaan nominal, durasi, atau telepon hanya menerima unit bukti yang mengandung jenis nilai tersebut. Ini guard konservatif berbasis pola, bukan pemeriksaan semantik umum.
+
+Keputusan `unknown` menghasilkan penolakan standar; ID bukti/sitasi invalid atau revisi usang ditolak. Kutipan literal mengurangi risiko model menciptakan fakta baru, dengan trade-off jawaban lebih panjang dan kurang luwes. Pemilihan kutipan masih bisa kurang relevan/lengkap, potongan chunk dapat kehilangan konteks, dan kesalahan teks sumber tetap bisa terbawa. Pengguna perlu memeriksa sumber. Mode opsional `ANSWER_MODE=abstractive` mempertahankan jawaban parafrase `status/answer/source_ids` dengan verifier LLM best-effort. Tes otomatis belum mengukur akurasi jawaban live pada seluruh dataset setelah mitigation.
 
 Hapus dokumen terlebih dahulu mengeluarkannya dari daftar `ready`, lalu membersihkan vektor dan metadata. Jika cleanup gagal, dokumen tetap tidak dapat diretrieve dan tombol hapus dapat dicoba ulang. Pesan historis tetap terlihat dengan peringatan jika sumbernya tidak aktif; pesan tersebut tidak dipakai sebagai knowledge untuk jawaban baru. Teks sumber yang tersimpan pada riwayat merupakan bukti jawaban lama, sehingga penghapusan dokumen bukan penghapusan seluruh arsip percakapan.
 
@@ -137,7 +141,7 @@ Provider keempat memerlukan adapter baru, pendaftaran factory, serta penambahan 
 ## Batasan dan pekerjaan berikutnya
 
 - OCR bonus belum tersedia; DOCX mendukung body paragraf/tabel, tanpa penomoran halaman Word.
-- OpenAI belum diuji live; tidak ada panggilan berbayar. OpenRouter Dots free sudah menjawab DOCX RAG dengan sitasi; ketersediaan model gratis dapat berubah. Belum ada video submission atau evaluasi10–20 pertanyaan per agent.
+- OpenAI belum diuji live; tidak ada panggilan berbayar. OpenRouter Dots free sudah menjawab DOCX RAG dengan sitasi; ketersediaan model gratis dapat berubah. Evaluasi 10 pertanyaan statis per agent dan perbandingan model tersedia; video submission belum dibuat.
 - Multi-turn dibatasi riwayat tiga pasangan pesan. Ketepatan rewriter dan keputusan tidak tahu masih dipengaruhi model; rujukan ke percakapan sangat lama belum ditangani.
 - Kalibrasi threshold dan smoke test kecil bukan ukuran akurasi umum. Model lain dapat lebih sering menolak atau menjawab kurang lengkap.
 - Pemrosesan belum diisolasi dalam worker; aplikasi ditujukan untuk penggunaan lokal satu pengguna, tanpa autentikasi/multi-user.
@@ -191,12 +195,25 @@ SQLite schema3 menyimpan file asli (BLOB), snapshot parser awal yang tetap, dan 
 
 Migrasi schema1/2 mempertahankan data lama dan memberi revisi1 secara default. Dokumen dari sebelum penyimpanan file asli tidak otomatis mempunyai PDF untuk viewer; unggah ulang jika memerlukan viewer. Dokumen lama yang memiliki snapshot tetap dapat diedit meski file aslinya belum tersimpan. Tidak ada editor tata letak PDF atau penulisan perubahan ke file asli.
 
-Uji lokal opt-in: `uv run python -m scripts.smoke_editor` melakukan koreksi whitespace pada People Policy publik tanpa mengubah fakta kebijakannya, mengindeks ulang, lalu mendapat jawaban bersitasi revisi2 melalui Qwen3 dan verifier lokal. Unit/AppTest juga memeriksa koreksi isi, pergantian vektor, invalidasi riwayat, konflik revisi, kegagalan embedding, delete saat reindex, dan migrasi schema2.
+Smoke sebelum mitigasi extractive: `uv run python -m scripts.smoke_editor` melakukan koreksi whitespace pada People Policy publik tanpa mengubah fakta kebijakannya, mengindeks ulang, lalu mendapat jawaban bersitasi revisi2 melalui Qwen3 dan verifier lokal. Unit/AppTest juga memeriksa koreksi isi, pergantian vektor, invalidasi riwayat, konflik revisi, kegagalan embedding, delete saat reindex, dan migrasi schema2.
 
 ## Verifikasi dukungan klaim
 
-`CITATION_VERIFIER_ENABLED=true` secara default. Verifier menggunakan `LOCAL_FALLBACK_MODEL` lewat LiteLLM/Ollama, termasuk untuk jawaban cloud, sehingga tidak menghabiskan kuota OpenRouter tambahan. Ollama wajib aktif; jika verifier tidak tersedia, jawaban gagal menjadi jawaban terverifikasi. Menonaktifkan flag menyisakan pemeriksaan struktural ID/sumber aktif saja. Ada tambahan satu panggilan model lokal untuk jawaban yang mempunyai sitasi; keputusan unknown tidak memanggil verifier. Verifier dapat memberi false-positive/false-negative, terutama pada dokumen kompleks. Kutipan literal yang benar juga tidak membuktikan entailment dengan sendirinya.
+Pada mode extractive, kode memeriksa bahwa jawaban persis hasil rendering bukti terpilih dan sitasinya masih aktif; tidak ada panggilan LLM kedua untuk menilai parafrase. Ini verifikasi asal teks, bukan jaminan relevansi, kelengkapan, kebenaran dokumen, atau hasil OCR.
 
-Uji lokal `uv run python -m scripts.smoke_verifier` menerima siklus tahunan dan menolak perubahan menjadi bulanan serta klaim cuti 60 hari yang tidak ada pada People Policy. Ini tiga contoh uji, bukan metrik evaluasi umum. `scripts.smoke_fallback` juga lulus dengan verifier aktif.
+Pada mode opsional abstractive, `CITATION_VERIFIER_ENABLED=true` memakai `LOCAL_FALLBACK_MODEL` melalui LiteLLM/Ollama, termasuk untuk jawaban cloud. Verifier diminta menilai seluruh klaim dan memberikan kutipan bukti. Kode mengecek kutipan benar-benar ada di sumber yang benar. Verdict negatif, JSON invalid, bukti tidak cocok, atau error menghasilkan penolakan. Ada satu panggilan lokal tambahan; jika flag dimatikan hanya pemeriksaan struktural ID/sumber aktif yang tersisa pada mode ini. Benchmark di bawah menemukan false positive dan false negative; verifier ini tidak layak menjadi satu-satunya pengaman.
 
 LiteLLM adalah SDK penghubung; Ollama merupakan proses server model yang berjalan terpisah. Jalur lokal: aplikasi → adapter LiteLLM → Ollama → Qwen3:8b. Tidak ada kuota request API cloud pada jalur lokal ini, tetapi kapasitas RAM/komputasi, waktu respons, dan ketersediaan server tetap membatasi. OpenRouter gratis tidak dijamin tersedia sepanjang demo/review; tiap pertanyaan bersumber biasanya memakai satu panggilan cloud, dan follow-up dapat memakai dua (rewrite + generate). Batas dan sisa akun dapat dibaca melalui endpoint resmi `GET /api/v1/key`; jangan menyertakan key pribadi dalam repository. Reviewer yang menjalankan lokal perlu Ollama/model sendiri dan key sendiri jika ingin jalur cloud.
+
+## Evaluasi Qwen3 dan Llama3.1
+
+Baseline sebelum mitigasi extractive, pada 22 Oktober 2026: 10 pertanyaan HR dan 10 Legal serta 6 skenario DOCX/multi-turn/delete/revisi, dua pengulangan per model. Generator memakai prompt/retrieval/context yang sama dan verifier dinonaktifkan agar tidak menjadi penilai kandidat lain; verifier masing-masing diuji terpisah dengan 6 klaim tetap. Tidak ada panggilan cloud atau perubahan data aplikasi utama.
+
+| Metrik | Qwen3:8b | Llama3.1:8b |
+|---|---:|---:|
+| Lolos rubrik otomatis | 48/52 | 48/52 |
+| Unknown tepat ketika model dipanggil | 4/4 | 2/4 |
+| Median latensi tanpa verifier | 3,99 detik | 3,74 detik |
+| Verifier menerima klaim salah | 2/6 | 4/6 |
+
+Keduanya salah memilih dokumen pada satu pertanyaan, dan kedua verifier memiliki false positive. Rubrik bukan akurasi entailment; beberapa jawaban lolos kata kunci tetapi coverage sitasinya belum lengkap. Sampel unknown yang mencapai model hanya dua pertanyaan unik, masing-masing diulang dua kali. Qwen tetap default sementara berdasarkan profil penolakan yang lebih konservatif pada sampel ini; tidak diklaim paling robust secara umum. Detail protokol, metrik retrieval, model digest, kegagalan, dan batasan ada di [laporan evaluasi](docs/evaluation/LOCAL_MODEL_COMPARISON.md) dan [ringkasan terstruktur](eval/local_model_results.json). Rancangan mitigasi M14 ada di [laporan grounding](docs/evaluation/GROUNDING_MITIGATION.md); test suite memeriksa struktur/source behavior, bukan live answer quality.

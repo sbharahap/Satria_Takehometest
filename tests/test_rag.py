@@ -84,7 +84,12 @@ class FakeProvider(ChatProvider):
 @pytest.fixture
 def rag(tmp_path):
     services = initialize(
-        Settings(_env_file=None, data_dir=tmp_path, citation_verifier_enabled=False)
+        Settings(
+            _env_file=None,
+            data_dir=tmp_path,
+            citation_verifier_enabled=False,
+            answer_mode="abstractive",
+        )
     )
     embeddings, provider = FakeEmbeddings(), FakeProvider()
     services.documents.embeddings = embeddings

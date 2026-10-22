@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     openrouter_model: str = "dots-studio/dots-3-note-preview:free"
     openrouter_free_only: bool = True
     openrouter_reasoning_enabled: bool = False
+    answer_mode: Literal["extractive", "abstractive"] = "extractive"
     citation_verifier_enabled: bool = True
     local_fallback_enabled: bool = True
     local_fallback_model: str = "ollama_chat/qwen3:8b"

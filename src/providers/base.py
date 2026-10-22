@@ -12,6 +12,7 @@ class ChatRequest:
     max_tokens: int = 700
     temperature: float = 0
     json_mode: bool = False
+    reasoning_mode: str | None = None
 
 
 @dataclass(frozen=True)
