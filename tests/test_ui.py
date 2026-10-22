@@ -196,3 +196,45 @@ def test_delete_conversation_ui_preserves_other_history(rag, monkeypatch):  # no
     finally:
         st.cache_resource.clear()
         get_settings.cache_clear()
+
+
+def test_successful_creation_resets_fields_and_provider_without_erasing_saved_agent(
+    tmp_path, monkeypatch
+):
+    from src.database.connection import Database
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("DEFAULT_CHAT_PROVIDER", "litellm")
+    get_settings.cache_clear()
+    st.cache_resource.clear()
+    app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30)
+    try:
+        app.run()
+        app.text_input(key="create_name").input("HR reset")
+        app.text_input(key="create_description").input("Deskripsi HR yang disimpan")
+        app.text_area(key="create_instructions").input("Jawab ringkas berdasarkan bukti.")
+        app.selectbox(key="create_provider").select(ProviderName.OPENROUTER).run()
+        next(b for b in app.button if b.label == "Simpan agent").click().run()
+        assert not app.exception
+        for widget in (
+            app.text_input(key="create_name"),
+            app.text_input(key="create_description"),
+            app.text_area(key="create_instructions"),
+        ):
+            assert widget.value == ""
+        settings = get_settings()
+        assert app.selectbox(key="create_provider").value.value == settings.default_chat_provider
+        assert app.selectbox(key="create_model").value == settings.litellm_model
+        with Database(settings.sqlite_path).connect() as connection:
+            row = connection.execute("SELECT * FROM agents WHERE name='HR reset'").fetchone()
+        assert row["description"] == "Deskripsi HR yang disimpan"
+        assert row["instructions"] == "Jawab ringkas berdasarkan bukti."
+        assert row["provider"] == "openrouter"
+        app.text_input(key="create_name").input("Legal berikutnya")
+        next(b for b in app.button if b.label == "Simpan agent").click().run()
+        assert app.text_input(key="create_name").value == ""
+        with Database(settings.sqlite_path).connect() as connection:
+            assert connection.execute("SELECT count(*) FROM agents").fetchone()[0] == 2
+    finally:
+        st.cache_resource.clear()
+        get_settings.cache_clear()

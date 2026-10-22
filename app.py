@@ -214,7 +214,9 @@ def agent_fields(key: str, current=None):
     provider = st.selectbox(
         "Provider",
         options=providers,
-        index=providers.index(ProviderName(initial)),
+        index=None
+        if f"{key}_provider" in st.session_state
+        else providers.index(ProviderName(initial)),
         format_func=lambda value: provider_labels[value.value],
         key=f"{key}_provider",
     )
@@ -243,10 +245,11 @@ def agent_fields(key: str, current=None):
     )
     if selected_model not in choices:
         selected_model = default_models[provider.value]
+        st.session_state[f"{key}_model"] = selected_model
     model = st.selectbox(
         "Model",
         options=choices,
-        index=choices.index(selected_model),
+        index=None if f"{key}_model" in st.session_state else choices.index(selected_model),
         key=f"{key}_model",
         help="Model lokal ditampilkan dari model yang terpasang di Ollama.",
     )
@@ -290,13 +293,17 @@ with manage:
         st.info("Belum ada agent. Buat asisten pertama Anda melalui formulir di bawah.")
 
     if st.session_state.pop("_reset_create", False):
-        for key in list(st.session_state):
-            if key.startswith("create_"):
-                del st.session_state[key]
+        # Deleting a rendered widget's key lets its browser value repopulate state.
+        # Assign defaults explicitly before rendering the same widgets again.
+        for field in ("name", "description", "instructions"):
+            st.session_state[f"create_{field}"] = ""
+        st.session_state["create_provider"] = ProviderName(settings.default_chat_provider)
+        st.session_state["create_model"] = default_models[settings.default_chat_provider]
+        st.session_state["create_provider_seen"] = settings.default_chat_provider
     just_saved = st.session_state.pop("_create_saved", False)
     with st.expander("Buat agent", expanded=not agents or just_saved):
         if just_saved:
-            st.success("✅ Tersimpan! Data agent berhasil disimpan dan form telah dikosongkan.")
+            st.success("Agent berhasil disimpan. Form siap untuk agent berikutnya.")
         values = agent_fields("create")
         if st.button("Simpan agent", type="primary"):
             if payload := validated_agent(values):
@@ -655,7 +662,7 @@ with chat:
         by_id = {item["id"]: item for item in conversations}
         if st.session_state.get(history_key) not in by_id:
             st.session_state[history_key] = st.session_state[conversation_key]
-        col_history, col_del_conv = st.columns([5, 1])
+        col_history, col_mode, col_del_conv = st.columns([4, 3, 1])
         with col_history:
             conversation_id = st.selectbox(
                 "Riwayat percakapan",
@@ -666,6 +673,20 @@ with chat:
                     + " · "
                     + by_id[value]["created_at"][:16].replace("T", " ")
                     + " UTC"
+                ),
+            )
+        with col_mode:
+            reasoning_mode = st.radio(
+                "Mode jawaban",
+                options=["fast", "thinking"],
+                format_func=lambda mode: (
+                    "Fast" if mode == "fast" else "Thinking · teliti"
+                ),
+                horizontal=True,
+                key=f"reasoning_mode_{chat_selected_id}",
+                help=(
+                    "Thinking meminta model meluangkan lebih banyak token untuk memilih bukti. "
+                    "Teks penalaran internal tidak ditampilkan."
                 ),
             )
         with col_del_conv:
@@ -711,81 +732,40 @@ with chat:
                     )
                     st.text(citation["text"])
 
-        for message in services.chat.messages(chat_selected_id, conversation_id):
-            with st.chat_message(message["role"]):
-                if message["role"] == "assistant":
-                    render_answer(message)
-                else:
-                    st.markdown(message["content"])
-        if services.chat.settings.answer_mode == "extractive":
-            st.caption(
-                "Jawaban memakai kutipan teks dokumen. Periksa sumber untuk konteks lengkap."
-            )
-        reasoning_mode = st.radio(
-            "Mode jawaban",
-            options=["fast", "thinking"],
-            format_func=lambda mode: (
-                "Fast" if mode == "fast" else "Thinking · lebih teliti, biasanya lebih lambat"
-            ),
-            horizontal=True,
-            key=f"reasoning_mode_{chat_selected_id}",
-            help=(
-                "Thinking meminta model meluangkan lebih banyak token untuk memilih bukti. "
-                "Teks penalaran internal tidak ditampilkan."
-            ),
-        )
+        chat_container = st.container()
+        with chat_container:
+            for message in services.chat.messages(chat_selected_id, conversation_id):
+                with st.chat_message(message["role"]):
+                    if message["role"] == "assistant":
+                        render_answer(message)
+                    else:
+                        st.markdown(message["content"])
+
         if question := st.chat_input(
             "Tanyakan isi dokumen agent ini", max_chars=2000, key=f"question_{chat_selected_id}"
         ):
-            with st.chat_message("user"):
-                st.markdown(question)
-            with st.chat_message("assistant"), st.spinner("Mencari sumber dan menyusun jawaban…"):
-                try:
-                    answer = services.chat.ask(
-                        chat_selected_id, conversation_id, question, reasoning_mode=reasoning_mode
-                    )
-                    render_answer(answer)
-                    diagnostic_messages = {
-                        "no_ready_documents": (
-                            "Agent ini belum memiliki dokumen siap. Periksa status dokumen "
-                            "atau unggah file terlebih dahulu."
-                        ),
-                        "no_retrieval_results": (
-                            "Pencarian belum menemukan bagian yang cocok. Coba istilah yang "
-                            "dipakai di dokumen, pilih agent yang benar, atau periksa "
-                            "hasil ekstraksi."
-                        ),
-                        "below_similarity_threshold": (
-                            "Ada bagian yang mirip, tetapi skornya di bawah ambang pencarian. "
-                            "Periksa pertanyaan atau koreksi teks ekstraksi jika hasil "
-                            "parser kurang rapi."
-                        ),
-                        "requested_value_not_found": (
-                            "Bagian yang ditemukan tidak memuat jenis nilai yang diminta "
-                            "(misalnya nominal atau jumlah hari), jadi sistem memilih "
-                            "untuk tidak menebak."
-                        ),
-                        "evidence_not_selectable": (
-                            "Bagian yang ditemukan terlalu terpotong untuk dikutip dengan aman. "
-                            "Tinjau atau koreksi teks ekstraksi."
-                        ),
-                        "unresolved_reference": (
-                            "Rujukan percakapan ini tidak dapat dipahami dari jawaban bersumber "
-                            "yang masih aktif. Ajukan ulang pertanyaan dengan menyebut topiknya."
-                        ),
-                        "model_abstained": (
-                            "Model memilih tidak menjawab dari bagian yang tersedia. "
-                            "Periksa pertanyaan dan hasil ekstraksi dokumen."
-                        ),
-                    }
-                    if answer.get("diagnostic") in diagnostic_messages:
-                        st.info(diagnostic_messages[answer["diagnostic"]])
-                except (ProviderError, ValueError) as error:
-                    st.error(str(error))
-                except Exception as error:
-                    logger.error("chat_failed error_type=%s", type(error).__name__)
-                    st.error(
-                        "Jawaban belum dapat dibuat. Periksa embedding dan penyimpanan aplikasi."
-                    )
+            with chat_container:
+                with st.chat_message("user"):
+                    st.markdown(question)
+                with (
+                    st.chat_message("assistant"),
+                    st.spinner("Mencari sumber dan menyusun jawaban…"),
+                ):
+                    try:
+                        services.chat.ask(
+                            chat_selected_id,
+                            conversation_id,
+                            question,
+                            reasoning_mode=reasoning_mode,
+                        )
+                        st.rerun()
+                    except (ProviderError, ValueError) as error:
+                        st.error(str(error))
+                    except Exception as error:
+                        logger.error("chat_failed error_type=%s", type(error).__name__)
+                        st.error(
+                            "Jawaban belum dapat dibuat. "
+                            "Periksa embedding dan penyimpanan aplikasi."
+                        )
     else:
         st.info("Pilih agent untuk memulai percakapan.")

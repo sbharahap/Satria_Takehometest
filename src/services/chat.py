@@ -171,8 +171,21 @@ class ChatService:
                     continue
                 has_answer = True
             topic_history.append({"role": message["role"], "content": message["content"][:2000]})
+        cleaned_words = re.sub(
+            r"\b(ini|itu|tersebut|tadi|mereka|sebelumnya|lanjut|jelaskan|lagi|poin|butir|"
+            r"nomor|apa|kapan|siapa|berapa|bagaimana|dimana|mengapa|kenapa|hal|pertama|"
+            r"kedua|ketiga|keempat|kelima|yang)\b",
+            "",
+            question,
+            flags=re.IGNORECASE,
+        ).strip()
+        has_standalone_topic = bool(re.search(r"[a-zA-Z]{3,}", cleaned_words))
+
         if not has_answer:
-            return {"query": question, "unresolved_reference": explicit_reference}
+            return {
+                "query": query,
+                "unresolved_reference": explicit_reference and not has_standalone_topic,
+            }
         response = self.providers.get(state["agent"].provider.value).complete(
             ChatRequest(
                 model=state["agent"].model,
@@ -209,10 +222,19 @@ class ChatService:
             "fallback_reason": response.fallback_reason or state.get("fallback_reason"),
         }
         try:
-            body = json.loads(response.content)
+            raw_text = response.content.strip()
+            if raw_text.startswith("```"):
+                raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+                raw_text = re.sub(r"\s*```$", "", raw_text)
+            match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+            body = json.loads(match.group(0) if match else raw_text)
             rewritten = body.get("query")
             if body.get("resolved") is False:
-                return {**execution, "query": question, "unresolved_reference": True}
+                return {
+                    **execution,
+                    "query": query,
+                    "unresolved_reference": explicit_reference and not has_standalone_topic,
+                }
             if (
                 body.get("resolved") is True
                 and isinstance(rewritten, str)
@@ -222,7 +244,11 @@ class ChatService:
         except (ValueError, AttributeError, TypeError):
             pass
         # Malformed rewrite cannot introduce unsupported facts; retrieve the user topic again.
-        return {**execution, "query": query, "unresolved_reference": explicit_reference}
+        return {
+            **execution,
+            "query": query,
+            "unresolved_reference": explicit_reference and not has_standalone_topic,
+        }
 
     def _expand_context(self, agent_id, sources):
         """Keep a complete page/section around hits when it fits the prompt budget.

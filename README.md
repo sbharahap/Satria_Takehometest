@@ -53,7 +53,7 @@ Compose menghubungi Ollama di `host.docker.internal:11434`. Gunakan `DOCKER_OLLA
 - **Rapikan baris:** menggabungkan pemenggalan kalimat dan spasi berlebih. Parser sudah melakukan perapian saat upload, jadi hasilnya bisa tidak berubah. Tombol ini tidak membetulkan isi OCR atau susunan tabel. Perubahan hanya masuk knowledge setelah **Simpan koreksi dan indeks ulang**.
 - **Percakapan:** pilih agent, ajukan pertanyaan, dan periksa sitasinya. Riwayat tersimpan; membuat percakapan baru tidak menghapus percakapan lama.
 
-Contoh menggunakan perusahaan **simulasi PT XYZ**, dengan template peraturan perusahaan dan regulasi umum berbahasa Indonesia. File dan tautan sumber ada di [panduan dataset](docs/DEMO_DATASET.md). Scan Jamkrida disediakan sebagai contoh OCR terpisah. PDF dan data pengguna tidak disertakan dalam repository.
+Contoh menggunakan perusahaan **simulasi PT XYZ**, dengan template peraturan perusahaan dan regulasi umum berbahasa Indonesia. File dan tautan sumber ada di [panduan dataset](docs/DEMO_DATASET.md). Scan Jamkrida disediakan sebagai contoh OCR terpisah. PDF dan data pengguna tidak disertakan dalam repository. Instalasi baru dengan storage kosong tidak memasukkan agent atau dokumen demo secara otomatis; skrip persiapan/seed hanya berjalan jika dipanggil sendiri. Pada instalasi yang sudah dipakai, data lama tetap tersimpan. Untuk mencoba dokumen reviewer secara terpisah, buat agent dan percakapan baru; upload ke agent lama menambahkan dokumen, bukan mengganti seluruh knowledge-nya.
 
 ## Cara kerja
 

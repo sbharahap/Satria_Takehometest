@@ -21,6 +21,8 @@ uv run python -m scripts.seed_demo --include-ocr
 
 Gunakan nama `Permenaker 28-2014.pdf`, atau nama unduhan macOS `Permenaker 28:2014.pdf`. Hasil dan SHA256 tersimpan pada `data/demo-current/manifest.json`. Skrip tidak mengubah teks atau identitas perusahaan.
 
+**Catatan nama:** PP di sini berarti **Peraturan Perusahaan** dalam `Contoh-PP-Sederhana-2023.pdf`, bukan Perpu. Perpu Nomor 2 Tahun 2022 tidak termasuk dataset ini. Untuk HR gunakan template 14 halaman tersebut dan Permenaker 25 halaman.
+
 ## Contoh pertanyaan
 
 - HR: “Menurut Contoh PP Sederhana 2023, berapa hari cuti tahunan dan syarat masa kerjanya?” Sumber: halaman PDF6.
