@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 from pypdf import PdfReader, PdfWriter
 
+from src.knowledge.ocr import OCRConfig, OCRError, recognize_pages
+
 
 class DocumentError(ValueError):
     """Safe, user-facing ingestion failure."""
@@ -32,7 +34,7 @@ def normalize_pdf_text(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-def parse_pdf(data: bytes) -> list[PageText]:
+def parse_pdf(data: bytes, *, ocr: OCRConfig | None = None) -> list[PageText]:
     if not data:
         raise DocumentError("File kosong. Unggah PDF yang memiliki teks.")
     if not data.lstrip().startswith(b"%PDF-"):
@@ -44,22 +46,32 @@ def parse_pdf(data: bytes) -> list[PageText]:
         if len(reader.pages) > 300:
             raise DocumentError("PDF melebihi batas 300 halaman. Pecah menjadi beberapa dokumen.")
         pages = []
+        scan_numbers = [
+            number
+            for number, page in enumerate(reader.pages, 1)
+            if sum(c.isalnum() for c in (page.extract_text() or "")) < 20 and len(page.images)
+        ]
+        recognized = recognize_pages(data, scan_numbers, ocr) if ocr and scan_numbers else {}
         total = 0
         for number, page in enumerate(reader.pages, start=1):
-            text = page.extract_text() or ""
+            text = recognized.get(number, page.extract_text() or "")
             # PDF extractors often put visual line wraps into the text stream.
             text = normalize_pdf_text(text)
             total += len(text)
             if total > 1_000_000:
                 raise DocumentError("Teks PDF terlalu besar. Pecah menjadi beberapa dokumen.")
             if text:
-                pages.append(PageText(number, text))
+                locator = f"Halaman PDF {number} · OCR" if number in recognized else None
+                pages.append(PageText(number, text, locator))
         if not pages or sum(c.isalnum() for p in pages for c in p.text) < 20:
             raise DocumentError(
                 "PDF tidak memiliki teks yang dapat dibaca (kosong atau hasil scan). "
-                "OCR belum tersedia; unggah PDF dengan teks yang dapat diseleksi."
+                "Aktifkan OCR dan periksa setup bahasa, "
+                "atau unggah PDF dengan teks yang dapat diseleksi."
             )
         return pages
+    except OCRError as error:
+        raise DocumentError(str(error)) from None
     except DocumentError:
         raise
     except Exception:

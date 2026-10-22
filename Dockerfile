@@ -5,12 +5,15 @@ ENV PYTHONUNBUFFERED=1 \
     UV_CACHE_DIR=/tmp/uv-cache \
     HF_HUB_DISABLE_TELEMETRY=1
 
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-ind tesseract-ocr-eng && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project && rm -rf /tmp/uv-cache
 COPY src ./src
 COPY app.py ./app.py
+COPY .streamlit ./.streamlit
 RUN useradd --uid 10001 --create-home appuser && mkdir -p data && chown appuser:appuser data
 USER appuser
 EXPOSE 8501

@@ -49,12 +49,14 @@ class Evidence:
 
 def _requested_kind(question):
     query = question.casefold()
-    if re.search(r"\b(nominal|rupiah|gaji|harga|biaya)\b", query):
+    if re.search(r"\b(nominal|rupiah|harga|biaya)\b", query) or (
+        "gaji" in query and not re.search(r"\b(tanggal|kapan|dibayar|pembayaran)\b", query)
+    ):
         return "money"
     if re.search(r"\b(telepon|hotline|telpon)\b", query):
         return "phone"
     if re.search(r"\b(berapa|jumlah|durasi|lama)\b", query):
-        for unit in ("hari", "minggu", "bulan", "tahun"):
+        for unit in ("jam", "hari", "minggu", "bulan", "tahun"):
             if re.search(rf"\b{unit}\b", query):
                 return unit
     return None
@@ -116,7 +118,7 @@ def select_evidence(body, units):
     if not isinstance(body, dict) or body.get("status") != "answered":
         return None
     ids = body.get("evidence_ids")
-    if not isinstance(ids, list) or not 1 <= len(ids) <= 3:
+    if not isinstance(ids, list) or not 1 <= len(ids) <= 5:
         return None
     valid = {unit.id: unit for unit in units}
     if any(not isinstance(tag, str) or tag not in valid for tag in ids) or len(set(ids)) != len(

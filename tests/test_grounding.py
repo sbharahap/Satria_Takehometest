@@ -47,6 +47,8 @@ def test_explicit_document_scope_and_ambiguous_shared_alias():
     "question,text,expected",
     [
         ("Berapa nominal hadiah?", "Hadiah tunai dilarang menurut kebijakan 2025.", False),
+        ("Tanggal berapa gaji dibayar?", "Upah dibayarkan setiap tanggal 5.", True),
+        ("Berapa jam kerja?", "Pekerjaan dilakukan empat puluh jam per minggu.", True),
         ("Berapa nominal hadiah?", "Batas hadiah adalah Rp 250.000 per transaksi.", True),
         ("Berapa nominal hadiah?", "Batas hadiah adalah dua puluh ribu rupiah.", True),
         ("Berapa hari prosesnya?", "Proses dilaksanakan sesuai prosedur perusahaan.", False),
@@ -217,3 +219,27 @@ def test_numbered_followup_tracks_display_order_instead_of_source_item_number():
     ]
     focused = focus_numbered_followup("Jelaskan poin kedua", history, units, sources, {"doc": 1})
     assert len(focused) == 1 and focused[0].text.startswith("(iii)")
+
+
+def test_multi_part_answer_accepts_five_literal_units_but_rejects_six():
+    units = evidence_units(
+        [
+            source(
+                "\n\n".join(f"Ketentuan nomor {i} berlaku bagi seluruh karyawan." for i in range(6))
+            )
+        ],
+        "Jelaskan semua ketentuan.",
+    )
+    assert len(units) == 6
+    assert (
+        len(
+            select_evidence(
+                {"status": "answered", "evidence_ids": [u.id for u in units[:5]]}, units
+            )
+        )
+        == 5
+    )
+    assert (
+        select_evidence({"status": "answered", "evidence_ids": [u.id for u in units]}, units)
+        is None
+    )

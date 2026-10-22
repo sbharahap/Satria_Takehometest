@@ -52,6 +52,7 @@ def main() -> int:
             and report["ollama"]["selected_model_available"]
             and report["sqlite"]["integrity"] == "ok"
             and report["sqlite"]["foreign_keys"]
+            and (not settings.ocr_enabled or report["ocr"]["indonesian_and_english_ready"])
         )
         print_report(report)
         return 0 if report["ready_for_local_development"] else 1

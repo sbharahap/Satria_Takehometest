@@ -19,11 +19,10 @@ class LiteLLMProvider(ChatProvider):
         if request.model.startswith(("ollama/", "ollama_chat/")):
             kwargs["api_base"] = self.settings.ollama_base_url
             kwargs["num_ctx"] = 8192
-            if (
-                request.model.startswith("ollama_chat/qwen3")
-                and request.reasoning_mode != "thinking"
-            ):
-                kwargs["reasoning_effort"] = "none"
+            if request.model.startswith("ollama_chat/qwen3"):
+                kwargs["reasoning_effort"] = (
+                    "medium" if request.reasoning_mode == "thinking" else "none"
+                )
         elif self.settings.litellm_api_key:
             kwargs["api_key"] = self.settings.litellm_api_key.get_secret_value()
         if request.json_mode:

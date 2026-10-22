@@ -9,7 +9,7 @@ import sys
 
 import httpx
 
-from src.config import Settings
+from src.config import PROJECT_ROOT, Settings
 
 
 def ollama_status(settings: Settings) -> dict:
@@ -39,6 +39,28 @@ def embedding_downloaded(settings: Settings) -> bool:
         )
         for snapshot in (model_dir / "snapshots").glob("*")
     )
+
+
+def ocr_status(settings: Settings) -> dict:
+    tools = {name: bool(shutil.which(name)) for name in ("pdftoppm", "tesseract")}
+    languages = []
+    if tools["tesseract"]:
+        command = ["tesseract", "--list-langs"]
+        directory = settings.ocr_tessdata_dir or PROJECT_ROOT / "data/ocr/tessdata"
+        if directory.is_dir():
+            command += ["--tessdata-dir", str(directory)]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                languages = result.stdout.splitlines()[1:]
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return {
+        "enabled": settings.ocr_enabled,
+        "tools": tools,
+        "indonesian_and_english_ready": all(tools.values()) and {"ind", "eng"}.issubset(languages),
+        "max_scan_pages": settings.ocr_max_pages,
+    }
 
 
 def environment_report(settings: Settings) -> dict:
@@ -84,6 +106,7 @@ def environment_report(settings: Settings) -> dict:
             "litellm": bool(settings.litellm_api_key),
         },
         "docker": docker,
+        "ocr": ocr_status(settings),
     }
 
 

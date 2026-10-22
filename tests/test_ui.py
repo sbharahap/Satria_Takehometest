@@ -109,3 +109,30 @@ def test_documents_and_chat_tabs_have_independent_agent_selection(rag, monkeypat
     finally:
         st.cache_resource.clear()
         get_settings.cache_clear()
+
+
+def test_saved_conversations_can_be_selected_again(rag, monkeypatch):  # noqa: F811
+    import src.bootstrap
+
+    services, _, _ = rag
+    owner = agent(services, "HR history")
+    old = services.chat.new_conversation(owner.id)
+    services.chat.ask(owner.id, old, "Berapa jumlah cuti di dokumen?")
+    recent = services.chat.new_conversation(owner.id)
+    rows = services.chat.conversations(owner.id)
+    assert {row["id"] for row in rows} == {old, recent}
+    assert next(row for row in rows if row["id"] == old)["title"].startswith("Berapa jumlah")
+    monkeypatch.setattr(src.bootstrap, "initialize", lambda settings: services)
+    monkeypatch.setenv("DATA_DIR", str(services.database.path.parent))
+    get_settings.cache_clear()
+    st.cache_resource.clear()
+    try:
+        app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30)
+        app.run()
+        app.selectbox(key=f"history_{owner.id}").select(old).run()
+        assert not app.exception
+        assert app.session_state[f"conversation_{owner.id}"] == old
+        assert any(m.value == "Berapa jumlah cuti di dokumen?" for m in app.markdown)
+    finally:
+        st.cache_resource.clear()
+        get_settings.cache_clear()

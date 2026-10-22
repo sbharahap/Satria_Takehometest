@@ -19,8 +19,9 @@ def response():
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Jawaban"))])
 
 
+@pytest.mark.parametrize("reasoning_mode,effort", [("fast", "none"), ("thinking", "medium")])
 @pytest.mark.parametrize("model", ["ollama_chat/llama3.1:8b", "ollama_chat/qwen3:8b"])
-def test_litellm_uses_own_adapter_and_local_endpoint(monkeypatch, model):
+def test_litellm_uses_own_adapter_and_local_endpoint(monkeypatch, model, reasoning_mode, effort):
     import litellm
 
     calls = []
@@ -32,7 +33,9 @@ def test_litellm_uses_own_adapter_and_local_endpoint(monkeypatch, model):
     monkeypatch.setattr(litellm, "completion", completion)
     provider = LiteLLMProvider(Settings(_env_file=None))
     result = provider.complete(
-        ChatRequest(model=model, messages=request().messages, json_mode=True)
+        ChatRequest(
+            model=model, messages=request().messages, json_mode=True, reasoning_mode=reasoning_mode
+        )
     )
     assert result.content == "Jawaban"
     assert calls[0]["api_base"] == "http://127.0.0.1:11434"
@@ -40,7 +43,9 @@ def test_litellm_uses_own_adapter_and_local_endpoint(monkeypatch, model):
     assert "api_key" not in calls[0]
     assert calls[0]["format"] == "json"
     if "qwen3" in model:
-        assert calls[0]["reasoning_effort"] == "none"
+        assert calls[0]["reasoning_effort"] == effort
+    else:
+        assert "reasoning_effort" not in calls[0]
 
 
 def test_openai_uses_sdk_directly(monkeypatch):

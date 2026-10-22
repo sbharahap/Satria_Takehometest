@@ -38,7 +38,10 @@ class Settings(BaseSettings):
     chunk_size_tokens: int = Field(default=350, ge=32, le=480)
     chunk_overlap_tokens: int = Field(default=50, ge=0)
     retrieval_top_k: int = Field(default=4, ge=1, le=30)
-    similarity_threshold: float = Field(default=0.83, ge=0, le=1)
+    similarity_threshold: float = Field(default=0.82, ge=0, le=1)
+    ocr_enabled: bool = True
+    ocr_max_pages: int = Field(default=40, ge=1, le=100)
+    ocr_tessdata_dir: Path | None = None
     max_upload_mb: int = Field(default=20, ge=1, le=100)
     provider_timeout_seconds: float = Field(default=60, gt=0, le=300)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"

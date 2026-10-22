@@ -8,10 +8,11 @@ from pydantic import ValidationError
 from src.bootstrap import initialize
 from src.config import get_settings
 from src.environment import ollama_status
-from src.knowledge.parsing import DocumentError, pdf_page_preview
+from src.knowledge.parsing import DocumentError, normalize_pdf_text, pdf_page_preview
 from src.models import AgentInput, ProviderName
 from src.providers.base import ProviderError
 from src.services.agents import AgentDeletionError, AgentNotFoundError
+from src.services.uploads import UploadQueue
 
 st.set_page_config(page_title="Ruang Dokumen", page_icon="📚", layout="wide")
 logger = logging.getLogger(__name__)
@@ -21,6 +22,11 @@ logger = logging.getLogger(__name__)
 def resources():
     settings = get_settings()
     return settings, initialize(settings)
+
+
+@st.cache_resource
+def upload_queue():
+    return UploadQueue()
 
 
 @st.cache_data(ttl=30)
@@ -102,7 +108,7 @@ with st.sidebar:
             st.caption("OpenRouter: hanya model gratis yang diizinkan.")
         if settings.local_fallback_enabled:
             st.caption(f"Fallback OpenRouter → lokal: {settings.local_fallback_model}")
-        if st.button("Muat ulang konfigurasi", key="reload_config"):
+        if st.button("Muat ulang konfigurasi", key="reload_config", disabled=upload_queue().busy()):
             get_settings.cache_clear()
             resources.clear()
             local_status.clear()
@@ -117,6 +123,73 @@ manage, documents, chat = st.tabs(
 )
 
 DEFAULT_AGENT_INSTRUCTIONS = "Gunakan sumber aktif agent ini dan jawab dalam Bahasa Indonesia."
+
+
+@st.fragment(run_every=0.5 if upload_queue().busy() else None)
+def upload_panel(agent_id):
+    job_key = f"upload_job_{agent_id}"
+    receipt_key = f"upload_receipt_{agent_id}"
+    job_id = st.session_state.get(job_key)
+    result = upload_queue().get(job_id, agent_id) if job_id else None
+    busy = result == "processing"
+    if result is not None and not busy and st.session_state.get(receipt_key) != job_id:
+        st.session_state[receipt_key] = job_id
+        st.rerun()
+    phase = (
+        "processing"
+        if busy
+        else ("error" if result and result.errors else "done" if result else "idle")
+    )
+    labels = {
+        "idle": "Proses dokumen",
+        "processing": "⏳ Memproses dokumen…",
+        "done": "✅ SELESAI",
+        "error": "⚠️ Ada dokumen gagal · coba lagi",
+    }
+    st.markdown(
+        """<style>
+    @keyframes uploadPulse { 0%,100% {background:#2563eb} 50% {background:#7c3aed} }
+    .st-key-upload_action_processing button[kind="primaryFormSubmit"] {
+        animation:uploadPulse 1.3s ease-in-out infinite; color:white; opacity:1; }
+    .st-key-upload_action_done button[kind="primaryFormSubmit"] {
+        background:#15803d; color:white; border-color:#15803d; }
+    .st-key-upload_action_error button[kind="primaryFormSubmit"] {
+        background:#b91c1c; color:white; }
+    </style>""",
+        unsafe_allow_html=True,
+    )
+    with st.container(key=f"upload_action_{phase}"):
+        with st.form(f"upload_{agent_id}", clear_on_submit=True):
+            uploads = st.file_uploader(
+                "Pilih PDF atau DOCX",
+                type=["pdf", "docx"],
+                accept_multiple_files=True,
+                max_upload_size=settings.max_upload_mb,
+                disabled=busy,
+                key=f"upload_files_{agent_id}",
+            )
+            submitted = st.form_submit_button(
+                labels[phase],
+                type="primary",
+                disabled=busy,
+                key=f"upload_submit_{agent_id}",
+            )
+    if submitted:
+        if not uploads:
+            st.warning("Pilih minimal satu file PDF atau DOCX.")
+        else:
+            try:
+                st.session_state[job_key] = upload_queue().start(
+                    agent_id, [(f.name, f.getvalue()) for f in uploads], services.documents
+                )
+                st.rerun()
+            except DocumentError as error:
+                st.error(str(error))
+    if result and not busy:
+        for name in result.ready:
+            st.caption(f"✅ {name} siap digunakan")
+        for message in result.errors:
+            st.error(message)
 
 
 def agent_fields(key: str, current=None):
@@ -195,7 +268,7 @@ def validated_agent(values):
 
 with manage:
     st.subheader("Agent Anda")
-    st.caption("Contoh: HR PT Vale Indonesia dan Legal & Compliance PT Vale Indonesia.")
+    st.caption("Contoh: HR PT XYZ dan Legal PT XYZ (perusahaan simulasi).")
     if agents:
         st.dataframe(
             [
@@ -279,37 +352,11 @@ with documents:
         st.caption(f"Agent: {services.agents.get(document_selected_id).name}")
         st.caption(
             "PDF atau DOCX dengan teks, maksimal "
-            f"{settings.max_upload_mb} MB/file. OCR belum tersedia."
+            f"{settings.max_upload_mb} MB/file. "
+            f"OCR lokal: {'aktif' if settings.ocr_enabled else 'nonaktif'}, "
+            f"maksimal {settings.ocr_max_pages} halaman scan."
         )
-        with st.form(f"upload_{document_selected_id}", clear_on_submit=True):
-            uploads = st.file_uploader(
-                "Pilih PDF atau DOCX",
-                type=["pdf", "docx"],
-                accept_multiple_files=True,
-                max_upload_size=settings.max_upload_mb,
-            )
-            submit_upload = st.form_submit_button("Proses dokumen", type="primary")
-        if submit_upload:
-            if not uploads:
-                st.warning("Pilih minimal satu file PDF atau DOCX.")
-            for upload in uploads:
-                with st.status(f"Memproses {upload.name}…", expanded=True) as status:
-                    try:
-                        doc = services.documents.upload(
-                            document_selected_id, upload.name, upload.getvalue()
-                        )
-                        if doc.status == "ready":
-                            status.update(
-                                label=f"✅ SELESAI · {doc.filename} · {doc.chunks_count} potongan",
-                                state="complete",
-                                expanded=False,
-                            )
-                        else:
-                            st.error(doc.error_message)
-                            status.update(label=f"{doc.filename} gagal diproses", state="error")
-                    except (DocumentError, AgentNotFoundError) as error:
-                        st.error(str(error))
-                        status.update(label="Upload gagal", state="error")
+        upload_panel(document_selected_id)
         uploaded_docs = services.documents.list_documents(document_selected_id)
         if not uploaded_docs:
             st.info("Belum ada dokumen. Unggah PDF atau DOCX untuk menyiapkan knowledge agent ini.")
@@ -330,14 +377,9 @@ with documents:
                             "Bandingkan dengan dokumen asli, lalu koreksi kesalahan ekstraksi. "
                             "Simpan akan mengganti knowledge dengan teks koreksi "
                             "dan mengindeks ulang. "
-                            "PDF asli tetap disimpan tanpa perubahan. OCR belum tersedia."
+                            "PDF asli tetap disimpan tanpa perubahan. "
+                            "Periksa kembali hasil OCR sebelum digunakan sebagai knowledge."
                         )
-                        if doc.file_type == "pdf":
-                            st.caption(
-                                "Ekstraksi PDF baru merapikan pemenggalan baris visual. "
-                                "Dokumen lama tidak diparse ulang otomatis; hapus dan unggah "
-                                "kembali untuk menerapkan normalisasi baru."
-                            )
                         page_index = st.selectbox(
                             "Halaman atau bagian",
                             options=range(len(pages)),
@@ -390,12 +432,18 @@ with documents:
                                 )
                         with editor:
                             st.markdown(f"**Teks kerja · revisi {doc.revision}**")
+                            editor_key = f"extraction_text_{doc.id}_{doc.revision}_{page_index}"
+                            if doc.file_type == "pdf" and st.button(
+                                "Rapikan pemenggalan baris", key=f"normalize_{doc.id}_{page_index}"
+                            ):
+                                draft = st.session_state.get(editor_key, selected_page["text"])
+                                st.session_state[editor_key] = normalize_pdf_text(draft)
                             with st.form(f"edit_text_{doc.id}_{doc.revision}_{page_index}"):
                                 edited_text = st.text_area(
                                     "Teks hasil ekstraksi",
                                     value=selected_page["text"],
                                     height=480,
-                                    key=f"extraction_text_{doc.id}_{doc.revision}_{page_index}",
+                                    key=editor_key,
                                     disabled=doc.status == "processing",
                                 )
                                 save_text = st.form_submit_button(
@@ -473,10 +521,28 @@ with chat:
             st.session_state[conversation_key] = services.chat.latest_conversation(
                 chat_selected_id
             ) or services.chat.new_conversation(chat_selected_id)
+        history_key = f"history_{chat_selected_id}"
         if st.button("Percakapan baru", key=f"new_chat_{chat_selected_id}"):
-            st.session_state[conversation_key] = services.chat.new_conversation(chat_selected_id)
+            new_id = services.chat.new_conversation(chat_selected_id)
+            st.session_state[conversation_key] = new_id
+            st.session_state[history_key] = new_id
             st.rerun()
-        conversation_id = st.session_state[conversation_key]
+        conversations = services.chat.conversations(chat_selected_id)
+        by_id = {item["id"]: item for item in conversations}
+        if st.session_state.get(history_key) not in by_id:
+            st.session_state[history_key] = st.session_state[conversation_key]
+        conversation_id = st.selectbox(
+            "Riwayat percakapan",
+            options=list(by_id),
+            key=history_key,
+            format_func=lambda value: (
+                by_id[value]["title"]
+                + " · "
+                + by_id[value]["created_at"][:16].replace("T", " ")
+                + " UTC"
+            ),
+        )
+        st.session_state[conversation_key] = conversation_id
         active_documents = services.documents.ready_versions(chat_selected_id)
         if not active_documents:
             st.info("Belum ada dokumen siap. Agent akan menyatakan informasi belum tersedia.")

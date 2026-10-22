@@ -4,8 +4,9 @@ from dataclasses import asdict
 from pathlib import PurePosixPath
 from uuid import uuid4
 
-from src.config import Settings
+from src.config import PROJECT_ROOT, Settings
 from src.database.connection import Database
+from src.knowledge.ocr import OCRConfig
 from src.knowledge.parsing import DocumentError, PageText, chunk_pages, parse_docx, parse_pdf
 from src.models import Document
 from src.services.agents import AgentService
@@ -141,7 +142,16 @@ class DocumentService:
                 (document_id, agent_id, filename, extension),
             )
         try:
-            pages = parse_pdf(data) if extension == "pdf" else parse_docx(data)
+            tessdata = self.settings.ocr_tessdata_dir
+            local_data = PROJECT_ROOT / "data/ocr/tessdata"
+            if tessdata is None and local_data.is_dir():
+                tessdata = local_data
+            ocr = (
+                OCRConfig(max_pages=self.settings.ocr_max_pages, tessdata_dir=tessdata)
+                if self.settings.ocr_enabled
+                else None
+            )
+            pages = parse_pdf(data, ocr=ocr) if extension == "pdf" else parse_docx(data)
             with self.database.connect() as connection:
                 stored = connection.execute(
                     "INSERT INTO document_extractions(document_id,pages_json) "
