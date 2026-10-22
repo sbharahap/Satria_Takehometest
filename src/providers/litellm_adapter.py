@@ -38,6 +38,7 @@ class LiteLLMProvider(ChatProvider):
                 num_retries=0,
                 **kwargs,
             )
+            content = response.choices[0].message.content
         except Exception as error:
             raise mapped_error("litellm", error) from None
-        return checked_response(response.choices[0].message.content)
+        return checked_response(content)

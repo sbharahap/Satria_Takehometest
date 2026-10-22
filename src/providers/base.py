@@ -17,6 +17,7 @@ class ChatRequest:
 @dataclass(frozen=True)
 class ChatResponse:
     content: str
+    fallback_model: str | None = None
 
 
 class ProviderError(RuntimeError):
@@ -44,6 +45,11 @@ def mapped_error(provider: str, error: Exception) -> ProviderError:
         message = "Provider melewati batas waktu. Coba kembali atau pilih model lebih kecil."
     elif status == 404:
         message = "Model atau endpoint tidak ditemukan. Periksa ID model dan koneksi provider."
+    elif status == 400:
+        message = (
+            "Konfigurasi permintaan tidak didukung model. "
+            "Periksa format JSON, ID model, dan pengaturan reasoning."
+        )
     else:
         message = "Provider gagal merespons. Periksa koneksi, model, dan konfigurasi layanan."
     return ProviderError(message)

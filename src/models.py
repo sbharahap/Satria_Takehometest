@@ -36,6 +36,7 @@ class Document(BaseModel):
     filename: str
     file_type: str
     status: str
+    revision: int = 1
     chunks_count: int
     error_message: str | None
     created_at: str
@@ -45,9 +46,15 @@ class Source(BaseModel):
     chunk_id: str
     document_id: str
     filename: str
-    page: int
+    page: int | None
     text: str
     score: float
+    locator: str | None = None
+    revision: int = 1
+
+    @property
+    def location(self) -> str:
+        return self.locator or (f"halaman PDF {self.page}" if self.page else "Bagian dokumen")
 
 
 class Citation(Source):

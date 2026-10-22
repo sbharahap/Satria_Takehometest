@@ -47,7 +47,7 @@ class KnowledgeStore:
             }
         )
 
-    def add_document(self, agent_id, document_id, filename, chunks, vectors) -> None:
+    def add_document(self, agent_id, document_id, filename, chunks, vectors, revision=1) -> None:
         for start in range(0, len(chunks), 64):
             batch = chunks[start : start + 64]
             self.collection.upsert(
@@ -59,7 +59,9 @@ class KnowledgeStore:
                         "agent_id": agent_id,
                         "document_id": document_id,
                         "filename": filename,
-                        "page": chunk.page,
+                        "revision": revision,
+                        "page": chunk.page or 0,
+                        "locator": chunk.locator or f"halaman PDF {chunk.page}",
                     }
                     for chunk in batch
                 ],
@@ -87,7 +89,9 @@ class KnowledgeStore:
                     chunk_id=chunk_id,
                     document_id=meta["document_id"],
                     filename=meta["filename"],
-                    page=meta["page"],
+                    page=meta.get("page") or None,
+                    locator=meta.get("locator"),
+                    revision=meta.get("revision", 1),
                     text=text,
                     score=max(0.0, min(1.0, 1.0 - distance)),
                 )

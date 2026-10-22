@@ -70,7 +70,15 @@ def test_openai_uses_sdk_directly(monkeypatch):
     assert result.content == "Jawaban" and calls[0]["model"] == "example-model"
 
 
-@pytest.mark.parametrize("status, expected", [(200, "Jawaban"), (401, "API key"), (429, "Batas")])
+@pytest.mark.parametrize(
+    "status, expected",
+    [
+        (200, "Jawaban"),
+        (400, "Konfigurasi"),
+        (401, "API key"),
+        (429, "Batas"),
+    ],
+)
 def test_openrouter_direct_http_and_safe_errors(monkeypatch, status, expected):
     original = httpx.Client
 
@@ -83,11 +91,12 @@ def test_openrouter_direct_http_and_safe_errors(monkeypatch, status, expected):
         httpx, "Client", lambda **kw: original(transport=httpx.MockTransport(handler), **kw)
     )
     provider = OpenRouterProvider(Settings(_env_file=None, openrouter_api_key="test-placeholder"))
+    free_request = ChatRequest(model="openrouter/free", messages=request().messages)
     if status == 200:
-        assert provider.complete(request()).content == expected
+        assert provider.complete(free_request).content == expected
     else:
         with pytest.raises(ProviderError, match=expected):
-            provider.complete(request())
+            provider.complete(free_request)
 
 
 @pytest.mark.parametrize("provider", [OpenAIProvider, OpenRouterProvider])
@@ -95,7 +104,9 @@ def test_missing_cloud_key_is_clear(provider, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     with pytest.raises(ProviderError, match="belum diisi"):
-        provider(Settings(_env_file=None)).complete(request())
+        provider(Settings(_env_file=None)).complete(
+            ChatRequest(model="openrouter/free", messages=request().messages)
+        )
 
 
 def test_error_mapping_redacts_raw_error_and_fourth_provider_needs_no_chat_changes(caplog):
@@ -110,3 +121,51 @@ def test_error_mapping_redacts_raw_error_and_fourth_provider_needs_no_chat_chang
     registry = ProviderRegistry(Settings(_env_file=None))
     registry.register("fourth", lambda settings: FourthProvider())
     assert registry.get("fourth").complete(request()).content == "Fourth"
+
+
+def test_openrouter_free_only_blocks_paid_model_before_network():
+    provider = OpenRouterProvider(Settings(_env_file=None, openrouter_api_key="test-placeholder"))
+    with pytest.raises(ProviderError, match="Mode gratis aktif"):
+        provider.complete(ChatRequest(model="openai/gpt-4o", messages=request().messages))
+
+
+@pytest.mark.parametrize("status, expected", [(401, "API key"), (429, "Batas"), (402, "Kredit")])
+def test_openai_error_status_does_not_expose_raw_error(monkeypatch, caplog, status, expected):
+    import openai
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.complete))
+
+        def complete(self, **kwargs):
+            error = RuntimeError("SENSITIVE-PLACEHOLDER")
+            error.status_code = status
+            raise error
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr(openai, "OpenAI", Client)
+    with pytest.raises(ProviderError, match=expected):
+        OpenAIProvider(Settings(_env_file=None, openai_api_key="test-placeholder")).complete(
+            request()
+        )
+    assert "SENSITIVE-PLACEHOLDER" not in caplog.text
+
+
+def test_litellm_timeout_and_malformed_response_are_safe(monkeypatch):
+    import litellm
+
+    def timeout(**kwargs):
+        raise httpx.ReadTimeout("SENSITIVE-PLACEHOLDER")
+
+    monkeypatch.setattr(litellm, "completion", timeout)
+    provider = LiteLLMProvider(Settings(_env_file=None))
+    with pytest.raises(ProviderError, match="batas waktu"):
+        provider.complete(request())
+    monkeypatch.setattr(litellm, "completion", lambda **kwargs: SimpleNamespace(choices=[]))
+    with pytest.raises(ProviderError):
+        provider.complete(request())

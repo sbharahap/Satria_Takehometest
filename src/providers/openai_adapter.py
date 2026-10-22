@@ -30,6 +30,7 @@ class OpenAIProvider(ChatProvider):
                     max_completion_tokens=request.max_tokens,
                     **({"response_format": {"type": "json_object"}} if request.json_mode else {}),
                 )
+                content = response.choices[0].message.content
         except Exception as error:
             raise mapped_error("openai", error) from None
-        return checked_response(response.choices[0].message.content)
+        return checked_response(content)

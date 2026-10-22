@@ -26,6 +26,18 @@ CREATE TABLE IF NOT EXISTS documents (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX IF NOT EXISTS documents_agent_status ON documents(agent_id, status);
+CREATE TABLE IF NOT EXISTS document_extractions (
+    document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+    pages_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS document_originals (
+    document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+    file_bytes BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS document_edits (
+    document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+    pages_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
@@ -66,8 +78,13 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 1:
+            if version > 3:
                 raise RuntimeError("Versi database lebih baru daripada aplikasi ini.")
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(SCHEMA)
-            connection.execute("PRAGMA user_version = 1")
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(documents)")}
+            if "revision" not in columns:
+                connection.execute(
+                    "ALTER TABLE documents ADD COLUMN revision INTEGER NOT NULL DEFAULT 1"
+                )
+            connection.execute("PRAGMA user_version = 3")

@@ -23,7 +23,12 @@ class Settings(BaseSettings):
     litellm_model: str = "ollama_chat/qwen3:8b"
     ollama_base_url: str = "http://127.0.0.1:11434"
     openai_model: str = "gpt-4o-mini"
-    openrouter_model: str = "openrouter/free"
+    openrouter_model: str = "dots-studio/dots-3-note-preview:free"
+    openrouter_free_only: bool = True
+    openrouter_reasoning_enabled: bool = False
+    citation_verifier_enabled: bool = True
+    local_fallback_enabled: bool = True
+    local_fallback_model: str = "ollama_chat/qwen3:8b"
     openai_api_key: SecretStr | None = None
     openrouter_api_key: SecretStr | None = None
     litellm_api_key: SecretStr | None = None
@@ -52,6 +57,13 @@ class Settings(BaseSettings):
     def validate_filename(cls, value: str) -> str:
         if not value or Path(value).name != value or value in {".", ".."}:
             raise ValueError("SQLITE_FILENAME harus berupa nama file, tanpa direktori.")
+        return value
+
+    @field_validator("local_fallback_model")
+    @classmethod
+    def validate_local_fallback(cls, value: str) -> str:
+        if not value.startswith(("ollama/", "ollama_chat/")) or not value.split("/", 1)[1].strip():
+            raise ValueError("LOCAL_FALLBACK_MODEL harus berupa model Ollama lokal.")
         return value
 
     @field_validator("ollama_base_url")

@@ -16,6 +16,12 @@ class OpenRouterProvider(ChatProvider):
         self.settings = settings
 
     def complete(self, request: ChatRequest) -> ChatResponse:
+        if self.settings.openrouter_free_only and not (
+            request.model == "openrouter/free" or request.model.endswith(":free")
+        ):
+            raise ProviderError(
+                "Mode gratis aktif. Pilih openrouter/free atau ID model berakhiran :free."
+            )
         if not self.settings.openrouter_api_key:
             raise ProviderError("OPENROUTER_API_KEY belum diisi pada environment/.env.")
         try:
@@ -31,6 +37,7 @@ class OpenRouterProvider(ChatProvider):
                         "messages": request.messages,
                         "max_tokens": request.max_tokens,
                         "temperature": request.temperature,
+                        "reasoning": {"enabled": self.settings.openrouter_reasoning_enabled},
                         **(
                             {"response_format": {"type": "json_object"}}
                             if request.json_mode
@@ -43,6 +50,11 @@ class OpenRouterProvider(ChatProvider):
                 if "error" in body:
                     raise ProviderError("Provider mengembalikan error. Periksa model dan kuota.")
                 content = body["choices"][0]["message"]["content"]
+                if not content and body["choices"][0].get("finish_reason") == "length":
+                    raise ProviderError(
+                        "Model menghabiskan batas token sebelum menjawab. "
+                        "Pilih model non-reasoning atau ubah konfigurasi reasoning."
+                    )
         except ProviderError:
             raise
         except Exception as error:
