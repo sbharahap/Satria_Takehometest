@@ -4,6 +4,8 @@ Tanya AI adalah aplikasi web untuk bertanya kepada dokumen PDF dan DOCX. Penggun
 
 Knowledge berasal dari dokumen yang diunggah. Model tidak dilatih ulang saat menerima dokumen baru. Dua agent boleh memakai model yang sama karena pemisahan sumber dilakukan oleh aplikasi.
 
+VIDEO DEMO: https://youtu.be/LL-Q6VXTZcg
+
 ## Menjalankan aplikasi
 
 Prasyarat: [uv](https://docs.astral.sh/uv/), [Ollama](https://ollama.com/) yang berjalan, serta RAM dan disk yang cukup untuk model 8B. Qwen3:8b perlu unduhan sekitar 5,2 GB. Jalankan perintah dari root repository.
