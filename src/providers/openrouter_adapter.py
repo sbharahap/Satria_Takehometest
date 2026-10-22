@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 
 from src.config import Settings
@@ -7,8 +9,36 @@ from src.providers.base import (
     ChatResponse,
     ProviderError,
     checked_response,
+    failure_summary,
     mapped_error,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def response_error(response: httpx.Response, body: dict) -> ProviderError:
+    """Classify errors, including errors embedded in HTTP 200, without exposing raw text."""
+    error = body.get("error")
+    error = error if isinstance(error, dict) else {}
+    status = error.get("code", response.status_code)
+    try:
+        status = int(status)
+    except (TypeError, ValueError):
+        status = response.status_code
+    effective_response = httpx.Response(status, request=response.request)
+    reason = mapped_error(
+        "openrouter",
+        httpx.HTTPStatusError("", request=response.request, response=effective_response),
+    ).reason
+    if status == 429:
+        message = str(error.get("message", "")).lower()
+        metadata = error.get("metadata") or {}
+        if any(marker in message for marker in ("free-models-per-day", "per-day", "daily")):
+            reason = "daily_quota"
+        elif isinstance(metadata, dict) and metadata.get("provider_name"):
+            reason = "capacity"
+    logger.warning("openrouter_request_failed status=%s reason=%s", status, reason)
+    return ProviderError("OpenRouter: " + failure_summary(reason) + ".", reason=reason)
 
 
 class OpenRouterProvider(ChatProvider):
@@ -23,7 +53,9 @@ class OpenRouterProvider(ChatProvider):
                 "Mode gratis aktif. Pilih openrouter/free atau ID model berakhiran :free."
             )
         if not self.settings.openrouter_api_key:
-            raise ProviderError("OPENROUTER_API_KEY belum diisi pada environment/.env.")
+            raise ProviderError(
+                "OPENROUTER_API_KEY belum diisi pada environment/.env.", reason="authentication"
+            )
         try:
             with httpx.Client(timeout=self.settings.provider_timeout_seconds) as client:
                 response = client.post(
@@ -49,15 +81,19 @@ class OpenRouterProvider(ChatProvider):
                         ),
                     },
                 )
-                response.raise_for_status()
-                body = response.json()
-                if "error" in body:
-                    raise ProviderError("Provider mengembalikan error. Periksa model dan kuota.")
+                try:
+                    body = response.json()
+                except ValueError:
+                    response.raise_for_status()
+                    raise
+                if response.is_error or "error" in body:
+                    raise response_error(response, body)
                 content = body["choices"][0]["message"]["content"]
                 if not content and body["choices"][0].get("finish_reason") == "length":
                     raise ProviderError(
                         "Model menghabiskan batas token sebelum menjawab. "
-                        "Pilih model non-reasoning atau ubah konfigurasi reasoning."
+                        "Pilih model non-reasoning atau ubah konfigurasi reasoning.",
+                        reason="token_limit",
                     )
         except ProviderError:
             raise

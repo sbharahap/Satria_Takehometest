@@ -10,6 +10,35 @@ from src.providers.base import ChatResponse
 from src.services.chat import UNKNOWN
 
 
+def test_doctor_does_not_cancel_upload_running_in_ui(rag, monkeypatch, capsys):
+    import src.cli
+
+    services, _, _ = rag
+    owner = agent(services, "HR")
+    with services.database.connect() as connection:
+        connection.execute(
+            "INSERT INTO documents(id,agent_id,filename,file_type,status) "
+            "VALUES('in-flight',?,'working.pdf','pdf','processing')",
+            (owner.id,),
+        )
+    monkeypatch.setattr(src.cli, "get_settings", lambda: services.documents.settings)
+    monkeypatch.setattr(
+        src.cli,
+        "environment_report",
+        lambda settings: {
+            "python_supported": True,
+            "packages": {"example": "installed"},
+            "embedding_downloaded": True,
+            "ollama": {"selected_model_available": True},
+            "ocr": {"indonesian_and_english_ready": True},
+        },
+    )
+    monkeypatch.setattr("sys.argv", ["cli", "doctor"])
+    assert src.cli.main() == 0
+    assert services.documents.get(owner.id, "in-flight").status == "processing"
+    capsys.readouterr()
+
+
 def test_docx_upload_cites_section_and_deletes_without_harming_pdf(rag):
     services, _, provider = rag
     hr = agent(services, "HR")
@@ -152,3 +181,23 @@ def test_docx_table_answer_uses_row_locator(rag):
     result = services.chat.ask(hr.id, chat, "Siapa penanggung jawab program mentoring?")
     assert result["citations"]
     assert "tabel 1, baris 2" in result["citations"][0]["locator"]
+
+
+def test_conversation_deletion_is_scoped_and_generation_cannot_revive_it(rag, monkeypatch):  # noqa: F811
+    from tests.test_rag import agent
+
+    services, _, _ = rag
+    first, second = agent(services, "HR scoped chat"), agent(services, "Legal scoped chat")
+    conversation = services.chat.new_conversation(first.id)
+    services.chat.delete_conversation(second.id, conversation)
+    assert services.chat.messages(first.id, conversation) == []
+
+    def delete_while_generating(state):
+        services.chat.delete_conversation(first.id, conversation)
+        return {"answer": "Tidak ada bukti.", "citations": []}
+
+    monkeypatch.setattr(services.chat.graph, "invoke", delete_while_generating)
+    with pytest.raises(ValueError, match="Percakapan sudah dihapus"):
+        services.chat.ask(first.id, conversation, "Jelaskan kebijakannya.")
+    with services.database.connect() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0

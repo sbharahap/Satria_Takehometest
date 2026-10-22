@@ -1,5 +1,6 @@
 import logging
 import sqlite3
+from html import escape
 
 import httpx
 import streamlit as st
@@ -166,6 +167,7 @@ def upload_panel(agent_id):
                 "Pilih PDF atau DOCX",
                 type=["pdf", "docx"],
                 accept_multiple_files=True,
+                max_upload_size=settings.max_upload_mb,
                 disabled=busy,
                 key=f"upload_files_{agent_id}",
             )
@@ -234,7 +236,7 @@ def agent_fields(key: str, current=None):
         choices = list(dict.fromkeys([settings.openrouter_model, "openrouter/free"]))
     else:
         choices = [settings.openai_model]
-    if current and current.model not in choices:
+    if current and current.provider == provider and current.model not in choices:
         choices.insert(0, current.model)
     selected_model = st.session_state.get(
         f"{key}_model", current.model if current else default_models[initial]
@@ -461,9 +463,17 @@ with documents:
                                 else:
                                     st.caption(
                                         f"{selected_page.get('locator') or 'Naskah DOCX'}. "
-                                        "Viewer menampilkan teks terformat dokumen asli."
+                                        "Ekstraksi awal DOCX, bukan tata letak Word. "
+                                        "Unduh file asli untuk memeriksa formatnya."
                                     )
-                                    docx_text = selected_page["text"]
+                                    initial_pages = services.documents.extraction(
+                                        document_selected_id, doc.id, original=True
+                                    )
+                                    docx_text = (
+                                        initial_pages[page_index]["text"]
+                                        if page_index < len(initial_pages)
+                                        else "Ekstraksi awal tidak tersedia. Unduh file asli."
+                                    )
                                     box_style = (
                                         "background-color: white; color: #1e293b; "
                                         "padding: 20px 24px; border-radius: 6px; "
@@ -473,7 +483,7 @@ with documents:
                                         "box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);"
                                     )
                                     st.markdown(
-                                        f'<div style="{box_style}">\n{docx_text}\n</div>',
+                                        f'<div style="{box_style}">\n{escape(docx_text)}\n</div>',
                                         unsafe_allow_html=True,
                                     )
                                 st.download_button(
@@ -510,8 +520,11 @@ with documents:
 
                             if just_normalized:
                                 st.info(
-                                    "✨ Baris telah dirapikan. "
-                                    "Klik 'Simpan koreksi dan indeks ulang' untuk menerapkan."
+                                    st.session_state.pop(
+                                        f"normalize_notice_{editor_key}",
+                                        "Baris telah dirapikan. "
+                                        "Simpan untuk menerapkan ke knowledge.",
+                                    )
                                 )
 
                             with st.form(f"edit_text_{doc.id}_{doc.revision}_{page_index}"):
@@ -530,11 +543,39 @@ with documents:
                                 normalize_clicked = col_norm.form_submit_button(
                                     "Rapikan baris",
                                     disabled=doc.status == "processing",
-                                    help="Gabungkan pemenggalan baris visual (hyphen wrap)",
+                                    help=(
+                                        "Gabungkan baris kalimat dan spasi berlebih. Parser sudah "
+                                        "melakukannya saat upload, jadi teks dapat tetap sama. "
+                                        "Tidak memperbaiki salah baca OCR atau susunan tabel."
+                                    ),
                                 )
                             if normalize_clicked:
-                                draft = edited_text or selected_page["text"]
-                                st.session_state[pending_key] = normalize_pdf_text(draft)
+                                draft = edited_text
+                                normalized = normalize_pdf_text(draft)
+                                if normalized == draft:
+                                    st.info(
+                                        "Tidak ada perubahan: teks sudah rapi menurut aturan "
+                                        "spasi dan baris. Isi OCR tetap perlu diperiksa."
+                                    )
+                                else:
+                                    st.session_state[f"normalize_undo_{editor_key}"] = draft
+                                    st.session_state[pending_key] = normalized
+                                    before = draft.count("\n") + 1
+                                    after = normalized.count("\n") + 1
+                                    st.session_state[f"normalize_notice_{editor_key}"] = (
+                                        f"Perapian mengubah {before} baris menjadi {after} baris "
+                                        "dan menormalkan spasi. Belum disimpan ke knowledge. "
+                                        "Periksa hasilnya, lalu simpan atau urungkan."
+                                    )
+                                    st.rerun()
+                            undo_key = f"normalize_undo_{editor_key}"
+                            if undo_key in st.session_state and st.button(
+                                "Urungkan perapian terakhir", key=f"undo_{editor_key}"
+                            ):
+                                st.session_state[pending_key] = st.session_state.pop(undo_key)
+                                st.session_state[f"normalize_notice_{editor_key}"] = (
+                                    "Perapian diurungkan. Draft belum disimpan ke knowledge."
+                                )
                                 st.rerun()
                             st.caption("Belum disimpan sampai tombol simpan ditekan.")
                             if save_text:
@@ -605,22 +646,7 @@ with chat:
                 chat_selected_id
             ) or services.chat.new_conversation(chat_selected_id)
         history_key = f"history_{chat_selected_id}"
-        st.markdown(
-            """<style>
-            div[data-testid="stButton"] button:has(p:contains("Buat Percakapan Baru")) {
-                background-color: #dc2626 !important;
-                color: white !important;
-                border-color: #dc2626 !important;
-                font-weight: 600;
-            }
-            div[data-testid="stButton"] button:has(p:contains("Buat Percakapan Baru")):hover {
-                background-color: #b91c1c !important;
-                border-color: #b91c1c !important;
-            }
-            </style>""",
-            unsafe_allow_html=True,
-        )
-        if st.button("➕ Buat Percakapan Baru", key=f"new_chat_{chat_selected_id}"):
+        if st.button("➕ Buat Percakapan Baru", key=f"new_chat_{chat_selected_id}", type="primary"):
             new_id = services.chat.new_conversation(chat_selected_id)
             st.session_state[conversation_key] = new_id
             st.session_state[history_key] = new_id

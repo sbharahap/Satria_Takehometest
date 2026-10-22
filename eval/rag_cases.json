@@ -1,0 +1,246 @@
+{
+  "version": 1,
+  "description": "PT XYZ simulasi; 10 HR dan 10 Legal. Referensi diperiksa dari PDF sumber, bukan status hukum terkini.",
+  "cases": [
+    {
+      "id": "HR01",
+      "agent": "hr",
+      "conversation": "leave",
+      "question": "Menurut Contoh PP Sederhana 2023, berapa hari cuti tahunan dan syarat masa kerjanya?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "Contoh-PP-Sederhana-2023.pdf",
+        "page": 6,
+        "answer": "12 hari kerja setelah bekerja 12 bulan berturut-turut."
+      }
+    },
+    {
+      "id": "HR02",
+      "agent": "hr",
+      "conversation": "leave",
+      "question": "Kapan permohonan cuti tahunan tersebut harus diajukan?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "Contoh-PP-Sederhana-2023.pdf",
+        "page": 6,
+        "answer": "Seminggu sebelumnya, kepada atasan."
+      }
+    },
+    {
+      "id": "HR03",
+      "agent": "hr",
+      "conversation": null,
+      "question": "Menurut Contoh PP Sederhana 2023, pada tanggal berapa upah bulanan dibayarkan?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "Contoh-PP-Sederhana-2023.pdf",
+        "page": 4,
+        "answer": "Tanggal 5 setiap bulan."
+      }
+    },
+    {
+      "id": "HR04",
+      "agent": "hr",
+      "conversation": null,
+      "question": "Menurut Contoh PP Sederhana 2023, berapa hari kerja per minggu dan berapa jam kerja maksimalnya?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "Contoh-PP-Sederhana-2023.pdf",
+        "page": 3,
+        "answer": "6 hari per minggu dan maksimal 40 jam seminggu."
+      }
+    },
+    {
+      "id": "HR05",
+      "agent": "hr",
+      "conversation": "probation",
+      "question": "Menurut Contoh PP Sederhana 2023, berapa lama masa percobaan pekerja tetap?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "Contoh-PP-Sederhana-2023.pdf",
+        "page": 3,
+        "answer": "3 bulan terhitung sejak mulai bekerja."
+      }
+    },
+    {
+      "id": "HR06",
+      "agent": "hr",
+      "conversation": "probation",
+      "question": "Kalau yang kontrak, apakah juga menjalani masa percobaan?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "Contoh-PP-Sederhana-2023.pdf",
+        "page": 3,
+        "answer": "Pekerja PKWT/kontrak tidak disyaratkan masa percobaan."
+      }
+    },
+    {
+      "id": "HR07",
+      "agent": "hr",
+      "conversation": null,
+      "question": "Menurut Contoh PP Sederhana 2023, apa dua program BPJS yang diikuti perusahaan?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "Contoh-PP-Sederhana-2023.pdf",
+        "page": 5,
+        "answer": "BPJS Kesehatan dan BPJS Ketenagakerjaan."
+      }
+    },
+    {
+      "id": "HR08",
+      "agent": "hr",
+      "conversation": null,
+      "question": "Menurut Contoh PP Sederhana 2023, apa fasilitas bagi karyawan wanita yang memberikan ASI eksklusif?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "Contoh-PP-Sederhana-2023.pdf",
+        "page": 5,
+        "answer": "Kesempatan dan fasilitas laktasi."
+      }
+    },
+    {
+      "id": "HR09",
+      "agent": "hr",
+      "conversation": null,
+      "question": "Berapa nomor WhatsApp pribadi kepala HR PT XYZ?",
+      "expected_abstention": true,
+      "reference": {
+        "filename": null,
+        "page": null,
+        "answer": "Informasi tidak tersedia; nyatakan tidak tahu."
+      }
+    },
+    {
+      "id": "HR10",
+      "agent": "hr",
+      "conversation": null,
+      "question": "Menurut uu40-2007.pdf, apa saja organ Perseroan?",
+      "expected_abstention": true,
+      "reference": {
+        "filename": null,
+        "page": null,
+        "answer": "UU40 tidak diunggah ke HR; tidak boleh memakai knowledge Legal."
+      }
+    },
+    {
+      "id": "LG01",
+      "agent": "legal",
+      "conversation": null,
+      "question": "Menurut uu40-2007.pdf, apa saja organ Perseroan?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "uu40-2007.pdf",
+        "page": 2,
+        "answer": "RUPS, Direksi, dan Dewan Komisaris."
+      }
+    },
+    {
+      "id": "LG02",
+      "agent": "legal",
+      "conversation": null,
+      "question": "Menurut uu40-2007.pdf, apa kewenangan dan tanggung jawab Direksi?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "uu40-2007.pdf",
+        "page": 2,
+        "answer": "Mengurus Perseroan untuk kepentingan dan tujuan Perseroan serta mewakilinya di dalam/luar pengadilan sesuai anggaran dasar."
+      }
+    },
+    {
+      "id": "LG03",
+      "agent": "legal",
+      "conversation": null,
+      "question": "Menurut uu40-2007.pdf, apa tugas Dewan Komisaris?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "uu40-2007.pdf",
+        "page": 3,
+        "answer": "Melakukan pengawasan umum/khusus sesuai anggaran dasar dan memberi nasihat kepada Direksi."
+      }
+    },
+    {
+      "id": "LG04",
+      "agent": "legal",
+      "conversation": null,
+      "question": "Menurut uu40-2007.pdf, apa yang dimaksud dengan RUPS?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "uu40-2007.pdf",
+        "page": 2,
+        "answer": "Organ Perseroan berwenang atas hal yang tidak diberikan kepada Direksi atau Dewan Komisaris dalam batas UU/anggaran dasar."
+      }
+    },
+    {
+      "id": "LG05",
+      "agent": "legal",
+      "conversation": null,
+      "question": "Menurut uu40-2007.pdf, apa yang dimaksud dengan Tanggung Jawab Sosial dan Lingkungan?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "uu40-2007.pdf",
+        "page": 2,
+        "answer": "Komitmen Perseroan berperan serta dalam pembangunan ekonomi berkelanjutan untuk meningkatkan kualitas kehidupan dan lingkungan, bagi Perseroan, komunitas setempat, dan masyarakat."
+      }
+    },
+    {
+      "id": "LG06",
+      "agent": "legal",
+      "conversation": null,
+      "question": "Menurut Permenaker 28-2014.pdf, apa definisi PKWT?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "Permenaker 28-2014.pdf",
+        "page": 3,
+        "answer": "Perjanjian kerja pekerja dengan pengusaha untuk hubungan kerja waktu tertentu atau pekerjaan tertentu."
+      }
+    },
+    {
+      "id": "LG07",
+      "agent": "legal",
+      "conversation": null,
+      "question": "Menurut Permenaker 28-2014.pdf Pasal 29, berapa lama masa berlaku PKB?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "Permenaker 28-2014.pdf",
+        "page": 13,
+        "answer": "Paling lama 2 tahun sejak ditandatangani atau diatur lain dalam PKB."
+      }
+    },
+    {
+      "id": "LG08",
+      "agent": "legal",
+      "conversation": null,
+      "question": "Menurut Permenaker 28-2014.pdf, apa saja yang sekurang-kurangnya dimuat dalam Peraturan Perusahaan?",
+      "expected_abstention": false,
+      "reference": {
+        "filename": "Permenaker 28-2014.pdf",
+        "page": 4,
+        "answer": "Hak/kewajiban pengusaha dan pekerja, syarat kerja, tata tertib, jangka waktu PP, serta pengaturan lebih lanjut perundang-undangan."
+      }
+    },
+    {
+      "id": "LG09",
+      "agent": "legal",
+      "conversation": null,
+      "question": "Berapa nomor WhatsApp pribadi direktur PT XYZ?",
+      "expected_abstention": true,
+      "reference": {
+        "filename": null,
+        "page": null,
+        "answer": "Informasi tidak tersedia; nyatakan tidak tahu."
+      }
+    },
+    {
+      "id": "LG10",
+      "agent": "legal",
+      "conversation": null,
+      "question": "Menurut Contoh-PP-Sederhana-2023.pdf, berapa hari cuti tahunan karyawan?",
+      "expected_abstention": true,
+      "reference": {
+        "filename": null,
+        "page": null,
+        "answer": "Template HR tidak diunggah ke Legal; tidak boleh memakai knowledge HR."
+      }
+    }
+  ]
+}

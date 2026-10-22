@@ -69,6 +69,46 @@ def test_failed_reindex_excludes_document_and_preserves_draft_for_retry(rag, mon
     assert services.documents.edit_page(hr.id, doc.id, 0, draft, 2).status == "ready"
 
 
+def test_late_indexing_failure_preserves_newer_ready_revision(rag):  # noqa: F811
+    services, _, _ = rag
+    hr = agent(services, "HR")
+    doc = services.documents.upload(hr.id, "people.pdf", make_pdf("Karyawan belajar tiap tahun."))
+    services.documents.edit_page(hr.id, doc.id, 0, "Karyawan belajar tiap bulan.", 1)
+    services.documents._failed(hr.id, doc.id, DocumentError("Pekerjaan lama gagal."), 1)
+    current = services.documents.get(hr.id, doc.id)
+    assert current.status == "ready" and current.revision == 2
+    found = services.knowledge.search(
+        hr.id, [doc.id], services.chat.embeddings.embed_query("karyawan"), 4
+    )
+    assert found and all(source.revision == 2 for source in found)
+
+
+def test_preempted_index_write_cannot_overwrite_newer_vectors(rag, monkeypatch):  # noqa: F811
+    services, _, _ = rag
+    hr = agent(services, "HR")
+    doc = services.documents.upload(hr.id, "people.pdf", make_pdf("Karyawan belajar tiap tahun."))
+    delete = services.knowledge.delete_document
+    preempted = False
+
+    def cleanup(agent_id, document_id, **kwargs):
+        nonlocal preempted
+        if not preempted:
+            preempted = True
+            # A cancelled worker resumes after a newer retry has finished indexing.
+            with services.database.connect() as connection:
+                connection.execute("UPDATE documents SET status='failed' WHERE id=?", (doc.id,))
+            services.documents.edit_page(hr.id, doc.id, 0, "Karyawan belajar tiap minggu.", 2)
+        delete(agent_id, document_id, **kwargs)
+
+    monkeypatch.setattr(services.knowledge, "delete_document", cleanup)
+    current = services.documents.edit_page(hr.id, doc.id, 0, "Karyawan belajar tiap bulan.", 1)
+    assert current.status == "ready" and current.revision == 3
+    found = services.knowledge.search(
+        hr.id, [doc.id], services.chat.embeddings.embed_query("karyawan"), 4
+    )
+    assert found and all(source.revision == 3 and "minggu" in source.text for source in found)
+
+
 def test_empty_and_stale_edits_cannot_overwrite_current_knowledge(rag):  # noqa: F811
     services, _, _ = rag
     hr = agent(services, "HR")
@@ -236,6 +276,75 @@ def test_extraction_navigation_updates_editor_and_keeps_all_pages(rag, monkeypat
         app.button(key=f"previous_page_{doc.id}").click().run()
         assert "Halaman pertama" in app.text_area(key=f"extraction_text_{doc.id}_1_0").value
         assert len(services.documents.extraction(owner.id, doc.id)) == 2
+    finally:
+        st.cache_resource.clear()
+        get_settings.cache_clear()
+
+
+def test_docx_preview_uses_initial_text_and_escapes_document_html(rag, monkeypatch):  # noqa: F811
+    import io
+
+    import streamlit as st
+    from docx import Document
+    from streamlit.testing.v1 import AppTest
+
+    import src.bootstrap
+    from src.config import get_settings
+
+    services, _, _ = rag
+    owner = agent(services, "DOCX review")
+    document, buffer = Document(), io.BytesIO()
+    document.add_paragraph("<style>body {display:none}</style> Aturan awal karyawan.")
+    document.save(buffer)
+    doc = services.documents.upload(owner.id, "review.docx", buffer.getvalue())
+    services.documents.edit_page(owner.id, doc.id, 0, "Aturan koreksi pengguna yang berbeda.", 1)
+    monkeypatch.setattr(src.bootstrap, "initialize", lambda settings: services)
+    monkeypatch.setenv("DATA_DIR", str(services.database.path.parent))
+    get_settings.cache_clear()
+    st.cache_resource.clear()
+    try:
+        app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+        assert not app.exception
+        preview = next(m.value for m in app.markdown if "Times New Roman" in m.value)
+        assert "&lt;style&gt;" in preview and "<style>body" not in preview
+        assert "Aturan awal karyawan" in preview and "Aturan koreksi" not in preview
+        assert "Aturan koreksi" in app.text_area(key=f"extraction_text_{doc.id}_2_0").value
+    finally:
+        st.cache_resource.clear()
+        get_settings.cache_clear()
+
+
+def test_normalize_form_updates_draft_before_widget_without_saving(rag, monkeypatch):  # noqa: F811
+    import streamlit as st
+    from streamlit.testing.v1 import AppTest
+
+    import src.bootstrap
+    from src.config import get_settings
+
+    services, _, _ = rag
+    owner = agent(services, "Normalize form")
+    doc = services.documents.upload(owner.id, "review.pdf", make_pdf("Aturan awal untuk karyawan."))
+    monkeypatch.setattr(src.bootstrap, "initialize", lambda settings: services)
+    monkeypatch.setenv("DATA_DIR", str(services.database.path.parent))
+    get_settings.cache_clear()
+    st.cache_resource.clear()
+    try:
+        app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+        key = f"extraction_text_{doc.id}_1_0"
+        app.text_area(key=key).input("Karyawan mengikuti\npelatihan setiap tahun.")
+        next(b for b in app.button if b.label == "Rapikan baris").click().run()
+        assert not app.exception
+        assert app.text_area(key=key).value == "Karyawan mengikuti pelatihan setiap tahun."
+        assert services.documents.get(owner.id, doc.id).revision == 1
+        assert any("2 baris menjadi 1 baris" in item.value for item in app.info)
+        next(b for b in app.button if b.label == "Urungkan perapian terakhir").click().run()
+        assert app.text_area(key=key).value == "Karyawan mengikuti\npelatihan setiap tahun."
+        next(b for b in app.button if b.label == "Rapikan baris").click().run()
+        next(b for b in app.button if b.label == "Simpan koreksi dan indeks ulang").click().run()
+        assert services.documents.get(owner.id, doc.id).revision == 2
+        next(b for b in app.button if b.label == "Rapikan baris").click().run()
+        assert any("Tidak ada perubahan" in item.value for item in app.info)
+        assert services.documents.get(owner.id, doc.id).revision == 2
     finally:
         st.cache_resource.clear()
         get_settings.cache_clear()

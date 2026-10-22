@@ -1,160 +1,154 @@
 # Tanya AI
 
-Aplikasi web chatbot dokumen dengan agent HR dan Legal yang memiliki konfigurasi dan knowledge terpisah. Knowledge berasal dari PDF/DOCX yang diunggah; aplikasi tidak mengisi jawaban dari pengetahuan umum model.
+Tanya AI adalah aplikasi web untuk bertanya kepada dokumen PDF dan DOCX. Pengguna bisa membuat beberapa agent, misalnya HR dan Legal, lalu memberi masing-masing agent dokumen dan model yang berbeda. Jawaban menyertakan nama file dan halaman atau bagian sumbernya.
 
-Buat agent → pilih provider/model → unggah dokumen → tinjau ekstraksi → tanya dan periksa sitasi. Mendukung CRUD agent, beberapa dokumen per agent, OCR lokal, editor ekstraksi dengan PDF berdampingan, penghapusan sumber, percakapan tersimpan, dan Fast/Thinking.
+Knowledge berasal dari dokumen yang diunggah. Model tidak dilatih ulang saat menerima dokumen baru. Dua agent boleh memakai model yang sama karena pemisahan sumber dilakukan oleh aplikasi.
 
-## Menjalankan dalam lima langkah
+## Menjalankan aplikasi
 
-Prasyarat: Python 3.12 melalui [uv](https://docs.astral.sh/uv/), [Ollama](https://ollama.com/) yang berjalan, dan ruang disk untuk model. Qwen3:8b memerlukan unduhan sekitar 5,2 GB; sediakan RAM untuk model 8B dan aplikasi. Jalankan dari root repository.
+Prasyarat: [uv](https://docs.astral.sh/uv/), [Ollama](https://ollama.com/) yang berjalan, serta RAM dan disk yang cukup untuk model 8B. Qwen3:8b perlu unduhan sekitar 5,2 GB. Jalankan perintah dari root repository.
 
-1. Pasang dependensi terkunci:
+1. Pasang Python dan dependensi sesuai lockfile.
    ```sh
    uv sync --frozen --extra dev --python 3.12
    ```
-2. Siapkan konfigurasi lokal:
+2. Buat konfigurasi lokal. Key cloud boleh kosong jika memakai Ollama.
    ```sh
    cp .env.example .env
    ```
-   Key cloud boleh kosong. Default memakai LiteLLM → Ollama → Qwen3:8b.
-3. Unduh model chat dan embedding:
+3. Unduh model chat dan embedding.
    ```sh
    ollama pull qwen3:8b
    uv run python -m src.cli download-embedding
    ```
-4. Siapkan OCR jika akan mengunggah scan. Di macOS:
+4. Siapkan OCR jika akan mengunggah scan. Pada macOS:
    ```sh
    brew install poppler tesseract
    uv run python -m scripts.setup_ocr
    ```
-   Di Debian/Ubuntu: `sudo apt-get install poppler-utils tesseract-ocr tesseract-ocr-ind tesseract-ocr-eng`. Untuk dokumen dengan text layer saja, OCR boleh dinonaktifkan melalui `OCR_ENABLED=false`.
-5. Jalankan:
+   Debian/Ubuntu: `sudo apt-get install poppler-utils tesseract-ocr tesseract-ocr-ind tesseract-ocr-eng`. Untuk PDF dengan teks, langkah OCR bisa dilewati dengan `OCR_ENABLED=false`.
+5. Jalankan aplikasi dan buka [localhost:8501](http://localhost:8501).
    ```sh
    uv run streamlit run app.py --server.address 127.0.0.1
    ```
-   Buka [localhost:8501](http://localhost:8501). File watcher dimatikan untuk menghindari introspeksi lazy imports Transformers; restart server setelah mengubah source.
 
-Unduhan model pertama memerlukan internet. Sesudah model tersedia, jalur lokal tidak memakai key atau kuota API cloud. Kecepatan tetap bergantung pada perangkat dan server Ollama.
+Internet diperlukan untuk unduhan awal. Setelah model tersedia, chat melalui Ollama, embedding, dan OCR dapat berjalan lokal. Restart server setelah mengubah source karena file watcher dimatikan.
 
-## Docker
+### Menggunakan Docker
 
-Prasyarat: Docker Desktop, `.env` dari contoh, serta Ollama/model chat di host.
+Siapkan Docker, `.env`, dan Ollama beserta model chat di host, lalu jalankan:
 
 ```sh
 docker compose up --build -d
 docker compose exec app /app/.venv/bin/python -m src.cli download-embedding
 ```
 
-Buka localhost:8501. Hentikan server native jika port terpakai. Image menyertakan Poppler, Tesseract, serta bahasa Indonesia/Inggris. Compose memakai `host.docker.internal:11434` untuk Ollama, dapat diganti dengan `DOCKER_OLLAMA_BASE_URL`. PyTorch menggunakan wheel CPU pada Linux.
+Compose menghubungi Ollama di `host.docker.internal:11434`. Gunakan `DOCKER_OLLAMA_BASE_URL` jika alamatnya berbeda. Image sudah memuat Poppler dan Tesseract Bahasa Indonesia/Inggris. Volume `app_data` menyimpan database, dokumen, dan cache model; `docker compose down` mempertahankannya, sedangkan `down -v` menghapusnya.
 
-SQLite, vektor, file asli dan cache embedding berada pada volume `app_data`; cache native tidak otomatis masuk ke Docker. `docker compose down` mempertahankan volume, sedangkan opsi `-v` menghapus data volume.
+## Cara menggunakan
 
-## Mencoba aplikasi
+- **Kelola agent:** buat agent dengan nama, deskripsi, instruksi tambahan, provider, dan model. Aturan dasar untuk memakai sumber aktif dan mengakui kekurangan informasi selalu berlaku.
+- **Dokumen:** pilih agent tujuan, unggah file, lalu tekan **Proses dokumen**. Setiap file memiliki status `processing`, `ready`, atau `failed` beserta penjelasannya.
+- **Tinjau ekstraksi:** bandingkan PDF asli dengan teks di editor. Untuk DOCX, panel kiri menampilkan teks ekstraksi awal; unduh file asli untuk melihat layout Word.
+- **Rapikan baris:** menggabungkan pemenggalan kalimat dan spasi berlebih. Parser sudah melakukan perapian saat upload, jadi hasilnya bisa tidak berubah. Tombol ini tidak membetulkan isi OCR atau susunan tabel. Perubahan hanya masuk knowledge setelah **Simpan koreksi dan indeks ulang**.
+- **Percakapan:** pilih agent, ajukan pertanyaan, dan periksa sitasinya. Riwayat tersimpan; membuat percakapan baru tidak menghapus percakapan lama.
 
-- Pada **Kelola agent**, buat `HR PT XYZ` dan `Legal PT XYZ`. Instruksi tambahan boleh kosong; system prompt grounding, Bahasa Indonesia, sitasi dan penolakan ketika bukti kurang selalu aktif. Provider dan model berupa dropdown.
-- Pada **Dokumen**, pilih agent tujuan secara eksplisit, pilih beberapa PDF/DOCX lalu tekan **Proses dokumen**. Tombol menampilkan proses dengan animasi dan selesai berwarna hijau. Status tiap file: `processing`, `ready`, atau `failed` beserta pesan kesalahan.
-- Buka **Tinjau dan koreksi hasil ekstraksi**. PDF asli tampil di kiri dan teks halaman di kanan. Periksa OCR, gunakan **Rapikan pemenggalan baris** bila perlu, lalu **Simpan koreksi dan indeks ulang**. Simpan tiap halaman sebelum berpindah. PDF asli dan snapshot parser awal tidak diubah.
-- Pada **Percakapan**, pilih agent, gunakan Fast untuk respons singkat atau Thinking jika model mendukungnya. Pilih kembali percakapan melalui **Riwayat percakapan**; **Percakapan baru** menyimpan percakapan sebelumnya.
-- Buka sitasi untuk memeriksa nama file, halaman/bagian, revisi dan teks sumber. Setelah dokumen dihapus atau dikoreksi, sumber lama ditandai tidak aktif/usang dan tidak dipakai sebagai knowledge baru.
+Contoh menggunakan perusahaan **simulasi PT XYZ**, dengan template peraturan perusahaan dan regulasi umum berbahasa Indonesia. File dan tautan sumber ada di [panduan dataset](docs/DEMO_DATASET.md). Scan Jamkrida disediakan sebagai contoh OCR terpisah. PDF dan data pengguna tidak disertakan dalam repository.
 
-Dataset utama adalah **simulasi PT XYZ**, memakai template PP berbahasa Indonesia dan regulasi umum pendamping. PP Jamkrida dipakai terpisah untuk contoh OCR; identitas dan kebijakannya tidak diubah menjadi PT XYZ. Sumber, instruksi persiapan dan contoh pertanyaan ada di [panduan dataset](docs/DEMO_DATASET.md). PDF lokal tidak ikut repository.
-
-## Arsitektur dan alur data
+## Cara kerja
 
 ```mermaid
 flowchart LR
-    UI[Streamlit] --> S[Service Python]
-    S --> SQL[SQLite: agent, dokumen, chat, revisi]
-    S --> P[PDF / DOCX / OCR lokal]
-    P --> E[E5 embedding lokal]
-    E --> V[Chroma: metadata agent dan dokumen]
-    S --> G[LangGraph: contextualize → retrieve → generate → validate → verify]
+    U[Streamlit] --> S[Service Python]
+    S --> D[SQLite]
+    S --> P[Ekstraksi PDF / DOCX / OCR]
+    P --> C[Chunk 350 token]
+    C --> E[Embedding E5]
+    E --> V[Chroma]
+    S --> G[LangGraph chat]
     V --> G
-    G --> I[ChatProvider interface aplikasi]
-    I --> L[LiteLLM → Ollama]
-    I --> O[OpenAI SDK]
-    I --> R[OpenRouter HTTP]
+    G --> A[Adapter provider]
+    A --> L[LiteLLM / Ollama]
+    A --> O[OpenAI SDK]
+    A --> R[OpenRouter HTTP]
 ```
 
-Backend berupa service Python dalam proses Streamlit. Ini mengurangi konfigurasi jaringan untuk tenggat take-home; belum ada REST API terpisah. UI memanggil service, sehingga API dapat ditambahkan sebagai lapisan di atas service yang sama. Agent adalah konfigurasi asisten dengan namespace knowledge, bukan model tersendiri atau model yang saling berdiskusi.
+**Saat dokumen masuk**, pypdf atau python-docx mengambil teksnya. Halaman scan memakai Poppler dan Tesseract `ind+eng`. Teks dibagi dengan sliding window sepanjang 350 token dan overlap 50 token, tanpa melewati batas halaman/bagian. Overlap membantu menjaga konteks ketika kalimat terpotong.
 
-SQLite mengaktifkan foreign key pada setiap koneksi; metadata, chat, file asli dan snapshot teks persisten. Chroma menyimpan vektor persisten. Retrieval memfilter `agent_id`, dokumen `ready`, dan revisi yang aktif, lalu memeriksa kembali sumber sebelum menyimpan jawaban. Penghapusan agent menonaktifkan agent dahulu, membersihkan vektor, lalu melakukan cascade data relasional. Kegagalan cleanup menyisakan status yang dapat dicoba ulang karena SQLite dan Chroma tidak berbagi transaksi.
+**Embedding** memakai `intfloat/multilingual-e5-small` dari Hugging Face melalui Sentence Transformers. Model ini dipilih karena mendukung beberapa bahasa dan bisa berjalan di CPU tanpa biaya API embedding. Hasilnya 384 angka per chunk, dinormalisasi, dengan prefix `passage:` untuk dokumen dan `query:` untuk pertanyaan. Model/dimensi embedding yang berbeda memerlukan collection baru dan reindex.
 
-Embedding `intfloat/multilingual-e5-small` berjalan lokal: 384 dimensi, normalisasi, prefix `query:`/`passage:`. Model multilingual dipilih untuk Bahasa Indonesia dan terpisah dari model chat. Mengubah model/dimensi memerlukan collection baru dan reindex; konfigurasi yang tidak cocok ditolak.
+**Saat pertanyaan masuk**, aplikasi mencari vektor dari agent yang dipilih dan hanya menerima dokumen `ready` pada revisi aktif. Kandidat dicari berdasarkan cosine similarity, disaring dengan threshold default 0,82, kemudian diurutkan ulang memakai TF-IDF character n-gram 3–5. Ini reranking kandidat dense, bukan dua pencarian global terpisah. Defaultnya empat sumber dari maksimal 20 kandidat. Sumber dapat dilengkapi dengan halaman/bagian yang sama, dibatasi 8.000 karakter per bagian dan 16.000 total.
 
-PDF mempertahankan nomor halaman file upload; DOCX memakai heading/paragraf/tabel/baris karena halaman Word tidak stabil. Chunk 350 token tokenizer E5, overlap 50, tidak melintasi halaman. Retrieval mengambil hingga 5× top-k (maksimal 50), menyaring cosine threshold 0,82, kemudian rerank TF-IDF character n-gram 3–5. Halaman/bagian lengkap dari revisi yang sama dipakai untuk melengkapi konteks jika muat: maksimal 8.000 karakter per bagian dan 16.000 karakter total. Ini mengurangi potongan kalimat, tetapi bukan jaminan semua syarat ikut terambil. Threshold adalah parameter dataset, bukan probabilitas kebenaran.
+**Jawaban default bersifat extractive.** Model memilih maksimal lima ID bukti; aplikasi menyusun kutipan literal dan sitasi dari ID tersebut. Mode ini dipilih untuk mengurangi penambahan fakta bebas, dengan konsekuensi jawaban kadang panjang atau kurang lengkap. Mode `abstractive` tersedia untuk parafrase dan memakai verifier LLM lokal jika diaktifkan. Baik validasi sitasi maupun verifier tidak menjamin relevansi dan kebenaran seluruh jawaban.
 
-Follow-up memakai maksimal tiga pasangan pesan untuk menulis ulang pertanyaan menjadi mandiri. Hanya jawaban lama dengan sumber yang masih aktif boleh menjadi konteks topik. Fakta tetap berasal dari retrieval baru. Rewriter dapat menambah satu panggilan model; riwayat sangat lama dan rujukan ambigu dapat ditolak.
+**Pertanyaan lanjutan** melewati rewriter dengan maksimal tiga pasangan pesan sebagai konteks topik, lalu retrieval dilakukan ulang. Riwayat bukan sumber fakta baru. LangGraph mengatur lima tahap: contextualize, retrieve, generate, validate citations, dan verify claims.
 
-Default `ANSWER_MODE=extractive`: model memilih maksimal lima ID bukti. Kode menyusun jawaban dari teks bukti literal, mengabaikan teks jawaban bebas model, memeriksa ID dan revisi, lalu menampilkan sitasi. Scope nama file dan pemeriksaan jenis nilai mengurangi jawaban angka yang tidak didukung. Ini memverifikasi asal teks, **bukan jaminan relevansi, kelengkapan atau kebenaran dokumen**.
+## Penyimpanan dan pilihan desain
 
-Mode opsional `ANSWER_MODE=abstractive` memakai parafrase dan `CITATION_VERIFIER_ENABLED=true` untuk verifikasi LLM lokal beserta pengecekan kutipan literal. Evaluasi menemukan false positive/negative pada verifier, sehingga ia tidak dijadikan satu-satunya pengaman. Lihat [laporan grounding](docs/evaluation/GROUNDING_MITIGATION.md).
+| Pilihan | Alasan dan konsekuensi |
+|---|---|
+| Streamlit dengan service Python | Satu proses lebih mudah dijalankan untuk take-home ini. Logic agent, dokumen, dan chat dipisahkan dari UI agar dapat dipakai ulang jika nanti ditambah API. |
+| SQLite melalui `sqlite3` | Menyimpan agent, metadata, file asli, ekstraksi, revisi, dan percakapan tanpa server database tambahan. Koneksi memakai foreign key dan WAL. Tidak memakai SQLAlchemy. |
+| Chroma persisten | Menyimpan vektor beserta identitas agent/dokumen. SQLite dan Chroma tidak berbagi transaksi, sehingga penghapusan perlu penonaktifan sumber dan cleanup yang dapat dicoba ulang. |
+| Antrean satu worker | Upload tidak menahan interaksi UI dan indexing tidak berebut resource. Pekerjaan belum dapat dilanjutkan setelah proses mati; dokumen yang tertinggal `processing` ditandai gagal saat startup. |
 
-## Provider, model dan fallback
+Koreksi teks menaikkan revisi dan mengganti indeks. Dokumen tidak dipakai saat reindex; pekerjaan lama tidak boleh menimpa revisi baru. Menghapus dokumen membuat sumbernya tidak dapat dipakai dalam jawaban baru. Sitasi pada arsip chat lama tetap terlihat dengan peringatan. Menghapus agent juga membersihkan dokumen, vektor, dan percakapannya.
 
-Kontrak ditulis di aplikasi: `ChatProvider.complete(ChatRequest) -> ChatResponse`. Registry memilih adapter tanpa mengubah retrieval atau logic chat.
+## Provider dan konfigurasi
 
-| Provider | Implementasi sendiri | Model/jalur awal | Bukti |
-|---|---|---|---|
-| LiteLLM | Memanggil SDK LiteLLM | Ollama lokal `qwen3:8b` | Unit test dan RAG live lokal |
-| OpenRouter | HTTP langsung, independen dari LiteLLM | `dots-studio/dots-3-note-preview:free` | HTTP mock dan smoke live sebelumnya |
-| OpenAI | SDK OpenAI langsung | `gpt-4o-mini` | SDK mock; belum live, tidak tersedia key |
+Semua adapter mengikuti `ChatProvider.complete(ChatRequest) -> ChatResponse`. OpenAI dan OpenRouter dipanggil langsung; LiteLLM diperlakukan sebagai provider tersendiri.
 
-LiteLLM adalah SDK penghubung; Ollama adalah server terpisah yang menjalankan model. Agent berbeda boleh memakai model yang sama karena knowledge diisolasi oleh aplikasi. Provider keempat membutuhkan adapter, pendaftaran factory dan pilihan UI/config; chat/retrieval tetap memakai interface yang sama.
+| Provider | Jalur | Model default |
+|---|---|---|
+| LiteLLM | SDK LiteLLM ke server Ollama lokal | `ollama_chat/qwen3:8b` |
+| OpenRouter | HTTP ke OpenRouter | `dots-studio/dots-3-note-preview:free` |
+| OpenAI | SDK OpenAI langsung | `gpt-4o-mini` |
 
-Untuk OpenRouter, isi `OPENROUTER_API_KEY=` pada `.env` lokal, restart atau tekan **Muat ulang konfigurasi**, lalu pilih provider/model di agent. Key tidak ditampilkan atau disertakan dalam Git. `OPENROUTER_FREE_ONLY=true` membatasi ke `:free` atau `openrouter/free`; model harus mendukung chat dan JSON output. Ketersediaan model dan kuota gratis dapat berubah, sehingga tidak ada jaminan demo/reviewer selalu mendapat layanan cloud.
+Provider/model dapat diganti per agent dari UI. Menambah provider keempat memerlukan adapter, factory registry, pilihan UI/config, serta migrasi constraint provider SQLite; logic chat dan retrieval tetap memakai interface yang sama.
 
-Fallback otomatis berlaku untuk error OpenRouter: satu kali mencoba LiteLLM/Ollama dengan `LOCAL_FALLBACK_MODEL`. Default Qwen3 yang sama; dapat diarahkan ke `ollama_chat/llama3.1:8b` setelah model diunduh. Ini tidak mengatasi Ollama/mesin yang mati. Agent LiteLLM langsung dan OpenAI tidak memiliki fallback tambahan. JSON atau sitasi invalid ditolak, tanpa fallback kualitas. Pemberitahuan fallback disimpan bersama jawaban. Timeout/rate limit/key salah ditampilkan sebagai error aman.
+Konfigurasi dibaca dari `.env` atau environment process; environment process didahulukan. Key berada pada `OPENAI_API_KEY`/`OPENROUTER_API_KEY`, bukan source. Mengubah model default tidak mengubah agent yang sudah disimpan. Tekan **Muat ulang konfigurasi** atau restart setelah mengubah `.env`.
 
-## OCR dan lifecycle dokumen
+| Pengaturan | Default |
+|---|---|
+| `DATA_DIR`, `OLLAMA_BASE_URL` | `./data`, `http://127.0.0.1:11434` |
+| `ANSWER_MODE` | `extractive` |
+| `SIMILARITY_THRESHOLD`, `RETRIEVAL_TOP_K` | `0.82`, `4` |
+| `LOCAL_FALLBACK_MODEL` | `ollama_chat/qwen3:8b` |
+| `MAX_UPLOAD_MB`, `OCR_MAX_PAGES` | `500`, `200` |
+| `PROVIDER_TIMEOUT_SECONDS` | `180` per panggilan |
 
-OCR memakai Poppler + Tesseract `ind+eng` secara lokal. Halaman dengan sedikit teks dan image mendapat OCR otomatis; hasil ditandai **OCR** pada locator. Batas: 20 MB/file, 300 halaman PDF, 40 halaman scan, 45 detik per subprocess OCR, 300 detik total OCR dan satu juta karakter teks. Batas halaman scan dapat diatur melalui `OCR_MAX_PAGES`. Tanpa tool/bahasa yang diperlukan, atau jika OCR gagal/kosong, aplikasi menampilkan error jelas dan status `failed`.
+Pilihan lain ada di `.env.example`. Batas parser: PDF 300 halaman, teks satu juta karakter, ekspansi DOCX 50 MB/5.000 entry, serta OCR 45 detik per subprocess dan 600 detik total. Batas ini adalah batas penerimaan, bukan klaim kapasitas yang sudah dibenchmark.
 
-Tesseract dipilih agar OCR CPU sederhana dan dapat dijalankan tanpa LLM/key tambahan. MinerU tidak menjadi dependensi pada versi ini. Tabel, kolom, scan buram dan angka dapat salah; **ready berarti terindeks, bukan hasil OCR telah disahkan**. Gunakan preview/editor sebelum mengandalkan jawaban.
+Jika OpenRouter gagal, aplikasi mencoba model Ollama lokal sekali per node dan menyimpan pemberitahuan fallback bersama jawaban. Pesannya membedakan timeout, koneksi, limit, dan kategori lain bila ada bukti dari respons provider. Agent LiteLLM langsung dan OpenAI tidak memiliki fallback tambahan. Mengganti model di server Ollama yang sama juga tidak mengatasi server yang mati.
 
-Upload berjalan di satu worker background per proses; koneksi SQLite dibuat per operasi. Rerun UI tidak memulai ulang pekerjaan. Setelah restart, dokumen `processing` menjadi `failed` dengan petunjuk unggah ulang. Antrean bukan job queue terdistribusi yang tahan restart. Simpan koreksi melakukan reindex sinkron; selama proses itu dokumen tidak dapat diretrieve.
+Mode `OPENROUTER_FREE_ONLY=true` membatasi ke ID `:free` atau `openrouter/free`. Ketersediaan dan kuota gratis tetap dapat berubah. Sisa permintaan gratis berbeda dari sisa kredit; lihat [penjelasan batas OpenRouter](https://openrouter.ai/docs/api_reference/limits). Timeout sendiri belum membuktikan kuota habis.
 
-Koreksi menaikkan revisi; konflik revisi usang ditolak. File asli dan parser snapshot tetap tersimpan. Dokumen lama sebelum fitur penyimpanan asli memerlukan unggah ulang untuk viewer. Menghapus dokumen menghapus file/teks/vector terkait, tetapi riwayat chat lama beserta kutipannya tetap menjadi arsip dan diberi peringatan sumber tidak aktif.
+## Evaluasi kualitas jawaban
 
-## Validasi
+Evaluasi menggunakan 20 pertanyaan Bahasa Indonesia pada dokumen demo: 10 HR dan 10 Legal, termasuk pertanyaan lanjutan, informasi yang tidak tersedia, dan isolasi knowledge. Qwen3 menghasilkan jawaban; Llama3.1:8b lokal menjadi judge untuk **answer relevance, groundedness, dan context relevance**.
+
+Pertanyaan, rubrik, skor per kasus, contoh kegagalan, dan cara mengulangnya ada di [laporan evaluasi](docs/EVALUATION.md). Skor judge adalah penilaian model pada sampel ini, bukan persentase akurasi atau jaminan jawaban benar. Groundedness tinggi tetap dapat disertai jawaban yang kurang menjawab pertanyaan.
+
+Untuk memeriksa instalasi dan menjalankan unit test ingestion/provider serta perilaku aplikasi:
 
 ```sh
-uv run python -m src.cli init
 uv run python -m src.cli doctor
 uv run pytest -q
-uv run ruff check .
-uv run ruff format --check .
 ```
 
-`doctor` memeriksa SQLite/foreign key, Chroma, cache embedding, Ollama/model, dependensi dan kesiapan OCR tanpa mencetak key. Docker opsional untuk jalur native.
+Tes provider memakai mock. OpenAI belum dicoba live karena key tidak tersedia; OpenRouter pernah berhasil sebelumnya, tetapi diagnostik terakhir mengalami timeout. Kemampuan endpoint cloud saat demo perlu diperiksa kembali.
 
-Suite terbaru: **113 tes lulus**, termasuk ingestion PDF/DOCX, OCR error/locator, provider contract/error, CRUD/cascade, isolasi, revisi/editor, sitasi, multi-turn, antrean upload dan Streamlit AppTest. Provider pada suite ini memakai mock; ini bukan ukuran akurasi semua jawaban model live. Hasil pemeriksaan terarah dataset baru, browser dan setup ada di [catatan integrasi](docs/evaluation/INTEGRATION_CHECKS.md).
+## Keterbatasan dan langkah berikutnya
 
-Skrip `scripts.prepare_demo`, `smoke_local`, `smoke_docx`, dan `compare_local_models` tetap memakai korpus PT Vale **historis** agar evaluasi lama dapat direproduksi; bukan dataset demo utama yang sekarang. Skrip live bersifat opt-in dan tidak dipanggil oleh pytest. Data/log mentah berada di `data/` yang di-ignore.
+- Aplikasi diasumsikan untuk satu pengguna lokal. Belum ada login, hak akses, atau dukungan beberapa instance.
+- `ready` berarti dokumen terindeks, bukan hasil OCR sudah benar. Tabel, kolom, angka, header/footer, dan text box bisa bermasalah; DOCX tidak diberi nomor halaman buatan.
+- Threshold perlu dikalibrasi untuk dokumen lain. Rewriter, pemilihan kutipan, dan verifier masih bisa salah. Mode Thinking tidak menjamin jawaban lebih baik.
+- Aplikasi mengikuti isi dan versi file yang diunggah; tidak memeriksa keberlakuan hukum atau kebenaran sumber.
+- OCR dan embedding berjalan lokal. Jika memilih provider cloud, potongan dokumen dan konteks percakapan dikirim ke provider tersebut.
+- Belum ada streaming, pencatatan biaya per agent, atau deployment cloud. Model lokal tetap dibatasi RAM, waktu proses, dan ketersediaan server.
 
-## Batasan dan trade-off
+Jika ada waktu tambahan, prioritas saya adalah memperluas evaluasi dengan dokumen baru dan penilaian manusia, memperbaiki retrieval pada kasus gagal, lalu menambah autentikasi dan job queue yang tahan restart.
 
-- Aplikasi satu pengguna lokal; belum ada autentikasi, izin lintas akun, atau deployment publik. Isolasi yang diuji adalah namespace agent.
-- OCR/editor tidak membuktikan isi dokumen benar. Aplikasi menjawab versi yang diunggah, bukan menilai keberlakuan hukum atau mencari pembaruan peraturan.
-- Pemilihan bukti dapat kurang relevan/lengkap; kutipan dapat panjang dan kurang luwes. Unknown yang terlalu konservatif masih mungkin terjadi pada pertanyaan/dokumen lain.
-- Thinking lebih lambat dan tidak menjamin kualitas lebih baik; dukungannya bergantung model. Teks penalaran internal tidak ditampilkan.
-- OpenAI belum diuji live. Cloud free dapat rate-limit atau berubah. Model lokal dibatasi RAM/CPU/server dan timeout.
-- DOCX belum menangani OCR gambar, header/footer/text box/komentar/tracked changes secara khusus; preview visual Word belum tersedia.
-- Streaming, estimasi biaya, background job persisten dan cloud deployment belum diimplementasikan.
+## Bantuan pengembangan
 
-## Bantuan AI
-
-Codex/AI membantu perencanaan, implementasi, pengujian, debugging dan dokumentasi. Masukan diperiksa terhadap brief dan bukti pengujian; kegagalan serta batasan dicatat. Catatan koordinasi pribadi, key, cache model, unggahan pengguna dan data runtime tidak disertakan dalam repository.
-
-## Evaluasi Qwen3 dan Llama3.1
-
-Baseline sebelum mitigasi extractive, pada 22 Oktober 2026: 10 pertanyaan HR dan 10 Legal serta 6 skenario DOCX/multi-turn/delete/revisi, dua pengulangan per model. Generator memakai prompt/retrieval/context yang sama dan verifier dinonaktifkan agar tidak menjadi penilai kandidat lain; verifier masing-masing diuji terpisah dengan 6 klaim tetap. Tidak ada panggilan cloud atau perubahan data aplikasi utama.
-
-| Metrik | Qwen3:8b | Llama3.1:8b |
-|---|---:|---:|
-| Lolos rubrik otomatis | 48/52 | 48/52 |
-| Unknown tepat ketika model dipanggil | 4/4 | 2/4 |
-| Median latensi tanpa verifier | 3,99 detik | 3,74 detik |
-| Verifier menerima klaim salah | 2/6 | 4/6 |
-
-Keduanya salah memilih dokumen pada satu pertanyaan, dan kedua verifier memiliki false positive. Rubrik bukan akurasi entailment; beberapa jawaban lolos kata kunci tetapi coverage sitasinya belum lengkap. Sampel unknown yang mencapai model hanya dua pertanyaan unik, masing-masing diulang dua kali. Qwen tetap default sementara berdasarkan profil penolakan yang lebih konservatif pada sampel ini; tidak diklaim paling robust secara umum. Detail protokol, metrik retrieval, model digest, kegagalan, dan batasan ada di [laporan evaluasi](docs/evaluation/LOCAL_MODEL_COMPARISON.md) dan [ringkasan terstruktur](eval/local_model_results.json). Rancangan mitigasi M14 ada di [laporan grounding](docs/evaluation/GROUNDING_MITIGATION.md); test suite memeriksa struktur/source behavior, bukan live answer quality.
+Codex dan Gemini membantu perencanaan, penulisan kode, debugging, serta dokumentasi. Bagian ini dicantumkan sesuai permintaan brief; hasil dan keterbatasan evaluasi dijelaskan terpisah agar dapat diperiksa.

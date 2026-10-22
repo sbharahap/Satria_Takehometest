@@ -176,3 +176,14 @@ def test_semantic_rejection_removes_citations_in_full_graph(rag):  # noqa: F811
     )
     assert answer["content"] == UNVERIFIED and not answer["citations"]
     assert rejecting.calls
+
+
+def test_normalizer_preserves_blank_paragraphs_and_repeated_word_hyphens():
+    raw = (
+        "Paragraf belum selesai\n\nParagraf baru\na. Ketentuan\nb. Ketentuan lain\nUndang-\nUndang"
+    )
+    result = normalize_pdf_text(raw)
+    assert "selesai\n\nParagraf" in result
+    assert "\na. Ketentuan\nb. Ketentuan" in result
+    assert "Undang-Undang" in result
+    assert normalize_pdf_text(result) == result

@@ -15,7 +15,8 @@ class LocalFallbackProvider(ChatProvider):
     def complete(self, request: ChatRequest) -> ChatResponse:
         try:
             return self.primary.complete(request)
-        except ProviderError:
+        except ProviderError as error:
+            reason = error.reason
             # Never log prompts, response contents, credentials, or raw exception text.
             logger.warning("provider_local_fallback")
         try:
@@ -25,4 +26,4 @@ class LocalFallbackProvider(ChatProvider):
                 "OpenRouter gagal dan fallback lokal juga gagal. "
                 "Periksa koneksi Ollama dan ketersediaan model lokal, lalu coba kembali."
             ) from None
-        return replace(response, fallback_model=self.model)
+        return replace(response, fallback_model=self.model, fallback_reason=reason)

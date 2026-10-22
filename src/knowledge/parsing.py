@@ -22,9 +22,16 @@ class PageText:
 def normalize_pdf_text(text: str) -> str:
     """Join visual line wraps while retaining paragraphs and common list boundaries."""
     text = text.replace("\x00", " ").replace("\r", "")
-    text = re.sub(r"(?<=[A-Za-zÀ-ÿ])-\n(?=[A-Za-zÀ-ÿ])", "", text)
+
+    def join_word(match):
+        first, second = match.groups()
+        # Repeated words retain their meaningful hyphen: undang-undang, hak-hak.
+        separator = "-" if first.casefold() == second.casefold() else ""
+        return first + separator + second
+
+    text = re.sub(r"([A-Za-zÀ-ÿ]+)-\n([A-Za-zÀ-ÿ]+)", join_word, text)
     text = re.sub(
-        r"(?<![.!?:;])\n(?!\n|\s*[•●▪◦]|\s*\(?\d+[.)]|\s*\([ivx]+\))",
+        r"(?<![.!?:;\n])\n(?!\n|\s*[•●▪◦]|\s*\(?\d+[.)]|\s*[a-z][.)]\s|\s*\([ivx]+\))",
         " ",
         text,
         flags=re.IGNORECASE,

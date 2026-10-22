@@ -84,7 +84,7 @@ class DocumentService:
         current = self.get(agent_id, document_id)
         if current.status != "processing" or current.revision != revision:
             raise DocumentError("Dokumen sudah dihapus atau pemrosesannya dibatalkan.")
-        self.knowledge.delete_document(agent_id, document_id)
+        self.knowledge.delete_document(agent_id, document_id, max_revision=revision)
         self.knowledge.add_document(agent_id, document_id, filename, chunks, vectors, revision)
         with self.database.connect() as connection:
             active = connection.execute(
@@ -113,7 +113,8 @@ class DocumentService:
             else ("Pemrosesan gagal. Periksa model embedding dan penyimpanan, lalu coba kembali.")
         )
         try:
-            self.knowledge.delete_document(agent_id, document_id)
+            # A late failure from an old worker must not erase a newer ready revision.
+            self.knowledge.delete_document(agent_id, document_id, max_revision=revision)
         except Exception:
             logger.error("partial_index_cleanup_failed document_id=%s", document_id)
         with self.database.connect() as connection:

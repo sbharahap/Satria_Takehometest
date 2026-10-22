@@ -37,21 +37,19 @@ class KnowledgeStore:
     def count(self) -> int:
         return self.collection.count()
 
-    def delete_document(self, agent_id: str, document_id: str) -> None:
-        self.collection.delete(
-            where={
-                "$and": [
-                    {"agent_id": agent_id},
-                    {"document_id": document_id},
-                ]
-            }
-        )
+    def delete_document(
+        self, agent_id: str, document_id: str, *, max_revision: int | None = None
+    ) -> None:
+        filters = [{"agent_id": agent_id}, {"document_id": document_id}]
+        if max_revision is not None:
+            filters.append({"revision": {"$lte": max_revision}})
+        self.collection.delete(where={"$and": filters})
 
     def add_document(self, agent_id, document_id, filename, chunks, vectors, revision=1) -> None:
         for start in range(0, len(chunks), 64):
             batch = chunks[start : start + 64]
             self.collection.upsert(
-                ids=[f"{document_id}:{start + i}" for i in range(len(batch))],
+                ids=[f"{document_id}:{revision}:{start + i}" for i in range(len(batch))],
                 embeddings=vectors[start : start + 64],
                 documents=[chunk.text for chunk in batch],
                 metadatas=[

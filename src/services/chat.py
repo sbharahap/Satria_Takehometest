@@ -16,7 +16,7 @@ from src.knowledge.grounding import (
 from src.knowledge.parsing import DocumentError
 from src.knowledge.reranking import rerank
 from src.models import Agent, Citation, Source
-from src.providers.base import ChatRequest
+from src.providers.base import ChatRequest, failure_summary
 from src.services.verification import CitationVerifier
 
 logger = logging.getLogger(__name__)
@@ -51,6 +51,7 @@ class ChatState(TypedDict, total=False):
     citations: list[Citation]
     history: list[dict]
     fallback_model: str | None
+    fallback_reason: str | None
     evidence_answer: str
     unresolved_reference: bool
     reasoning_mode: str
@@ -203,7 +204,10 @@ class ChatService:
                 ],
             )
         )
-        execution = {"fallback_model": response.fallback_model or state.get("fallback_model")}
+        execution = {
+            "fallback_model": response.fallback_model or state.get("fallback_model"),
+            "fallback_reason": response.fallback_reason or state.get("fallback_reason"),
+        }
         try:
             body = json.loads(response.content)
             rewritten = body.get("query")
@@ -399,7 +403,10 @@ class ChatService:
                 ],
             )
         )
-        execution = {"fallback_model": response.fallback_model or state.get("fallback_model")}
+        execution = {
+            "fallback_model": response.fallback_model or state.get("fallback_model"),
+            "fallback_reason": response.fallback_reason or state.get("fallback_reason"),
+        }
         try:
             body = json.loads(response.content)
             if isinstance(body, dict) and body.get("status") == "unknown":
@@ -462,7 +469,10 @@ class ChatService:
                 ],
             )
         )
-        execution = {"fallback_model": response.fallback_model or state.get("fallback_model")}
+        execution = {
+            "fallback_model": response.fallback_model or state.get("fallback_model"),
+            "fallback_reason": response.fallback_reason or state.get("fallback_reason"),
+        }
         try:
             body = json.loads(response.content)
             if body.get("status") == "unknown":
@@ -544,6 +554,11 @@ class ChatService:
                 "SELECT id FROM agents WHERE id=? AND status='active'", (agent_id,)
             ).fetchone():
                 raise ValueError("Agent sudah tidak aktif.")
+            if not connection.execute(
+                "SELECT id FROM conversations WHERE id=? AND agent_id=?",
+                (conversation_id, agent_id),
+            ).fetchone():
+                raise ValueError("Percakapan sudah dihapus. Mulai percakapan baru.")
             active = {
                 row[0]: row[1]
                 for row in connection.execute(
@@ -555,7 +570,11 @@ class ChatService:
                 result["answer"], citations = UNKNOWN, []
             if fallback_model := result.get("fallback_model"):
                 result["answer"] += (
-                    "\n\nℹ️ OpenRouter gagal; fallback lokal digunakan: " + fallback_model + "."
+                    "\n\nℹ️ OpenRouter gagal ("
+                    + failure_summary(result.get("fallback_reason"))
+                    + "); fallback lokal digunakan: "
+                    + fallback_model
+                    + "."
                 )
             # Keep the successful pair atomic; provider errors are not saved as answers.
             connection.execute(

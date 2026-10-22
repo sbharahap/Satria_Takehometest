@@ -79,9 +79,9 @@ def test_openai_uses_sdk_directly(monkeypatch):
     "status, expected",
     [
         (200, "Jawaban"),
-        (400, "Konfigurasi"),
+        (400, "konfigurasi"),
         (401, "API key"),
-        (429, "Batas"),
+        (429, "batas"),
     ],
 )
 def test_openrouter_direct_http_and_safe_errors(monkeypatch, status, expected):
@@ -132,6 +132,41 @@ def test_openrouter_free_only_blocks_paid_model_before_network():
     provider = OpenRouterProvider(Settings(_env_file=None, openrouter_api_key="test-placeholder"))
     with pytest.raises(ProviderError, match="Mode gratis aktif"):
         provider.complete(ChatRequest(model="openai/gpt-4o", messages=request().messages))
+
+
+@pytest.mark.parametrize(
+    "http_status,code,message,metadata,reason",
+    [
+        (429, 429, "Rate limit exceeded: free-models-per-day", {}, "daily_quota"),
+        (429, 429, "Temporarily rate-limited", {"provider_name": "upstream"}, "capacity"),
+        (429, 429, "Rate limit", {}, "rate_limit"),
+        (200, 503, "SENSITIVE-PLACEHOLDER", {}, "capacity"),
+        (200, 401, "SENSITIVE-PLACEHOLDER", {}, "authentication"),
+        (404, 404, "SENSITIVE-PLACEHOLDER", {}, "model_not_found"),
+    ],
+)
+def test_openrouter_classifies_http_and_embedded_errors_safely(
+    monkeypatch, caplog, http_status, code, message, metadata, reason
+):
+    original = httpx.Client
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        lambda **kw: original(
+            transport=httpx.MockTransport(
+                lambda req: httpx.Response(
+                    http_status,
+                    json={"error": {"code": code, "message": message, "metadata": metadata}},
+                )
+            ),
+            **kw,
+        ),
+    )
+    provider = OpenRouterProvider(Settings(_env_file=None, openrouter_api_key="test-placeholder"))
+    with pytest.raises(ProviderError) as error:
+        provider.complete(ChatRequest(model="openrouter/free", messages=request().messages))
+    assert error.value.reason == reason
+    assert "SENSITIVE" not in str(error.value) + caplog.text
 
 
 @pytest.mark.parametrize("status, expected", [(401, "API key"), (429, "Batas"), (402, "Kredit")])

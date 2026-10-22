@@ -50,6 +50,10 @@ def test_provider_switch_sets_model_default_and_persists(tmp_path, monkeypatch):
         agent_id = app.selectbox(key="active_agent").value
         app.selectbox(key=f"edit_{agent_id}_provider").select(ProviderName.LITELLM).run()
         assert app.selectbox(key=f"edit_{agent_id}_model").value == get_settings().litellm_model
+        assert (
+            get_settings().openrouter_model
+            not in app.selectbox(key=f"edit_{agent_id}_model").options
+        )
         next(button for button in app.button if button.label == "Simpan perubahan").click().run()
         assert not app.exception
         from src.database.connection import Database
@@ -158,6 +162,37 @@ def test_delete_target_is_explicit_and_independent_of_active_agent(rag, monkeypa
         next(b for b in app.button if b.label == "Hapus Legal remove").click().run()
         assert not app.exception
         assert [a.id for a in services.agents.list_agents()] == [first.id]
+    finally:
+        st.cache_resource.clear()
+        get_settings.cache_clear()
+
+
+def test_delete_conversation_ui_preserves_other_history(rag, monkeypatch):  # noqa: F811
+    import src.bootstrap
+
+    services, _, _ = rag
+    owner = agent(services, "History deletion")
+    old = services.chat.new_conversation(owner.id)
+    services.chat.ask(owner.id, old, "Pertanyaan pertama tanpa dokumen.")
+    other = services.chat.new_conversation(owner.id)
+    monkeypatch.setattr(src.bootstrap, "initialize", lambda settings: services)
+    monkeypatch.setenv("DATA_DIR", str(services.database.path.parent))
+    get_settings.cache_clear()
+    st.cache_resource.clear()
+    try:
+        app = AppTest.from_file(str(Path(__file__).parents[1] / "app.py"), default_timeout=30).run()
+        app.selectbox(key=f"history_{owner.id}").select(old).run()
+        app.button(key=f"del_conv_{owner.id}").click().run()
+        assert not app.exception
+        assert old not in {r["id"] for r in services.chat.conversations(owner.id)}
+        assert other in {r["id"] for r in services.chat.conversations(owner.id)}
+        with services.database.connect() as connection:
+            assert (
+                connection.execute(
+                    "SELECT COUNT(*) FROM messages WHERE conversation_id=?", (old,)
+                ).fetchone()[0]
+                == 0
+            )
     finally:
         st.cache_resource.clear()
         get_settings.cache_clear()

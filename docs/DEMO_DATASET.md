@@ -15,7 +15,7 @@ Template berasal dari [Disnakertrans Bantul](https://disnakertrans.bantulkab.go.
 Binary tidak disertakan ke Git karena provenance/izin distribusi perlu dipertahankan. Aplikasi juga dapat dicoba dengan dokumen reviewer sendiri. Untuk menata salinan lokal yang sudah diperoleh:
 
 ```sh
-uv run python -m scripts.prepare_demo_current --source-dir /path/to/pdf-folder
+uv run python -m scripts.prepare_demo --source-dir /path/to/pdf-folder
 uv run python -m scripts.seed_demo --include-ocr
 ```
 

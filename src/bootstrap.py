@@ -20,7 +20,7 @@ class Services:
     chat: ChatService
 
 
-def initialize(settings: Settings) -> Services:
+def initialize(settings: Settings, *, recover_interrupted: bool = True) -> Services:
     logging.basicConfig(
         level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
@@ -29,12 +29,13 @@ def initialize(settings: Settings) -> Services:
     database.initialize()
     knowledge = KnowledgeStore(settings)
     # Synchronous ingestion cannot resume work interrupted by a process restart.
-    with database.connect() as connection:
-        connection.execute(
-            "UPDATE documents SET status='failed',error_message="
-            "'Pemrosesan terhenti saat aplikasi restart. Hapus lalu unggah ulang.' "
-            "WHERE status='processing'"
-        )
+    if recover_interrupted:
+        with database.connect() as connection:
+            connection.execute(
+                "UPDATE documents SET status='failed',error_message="
+                "'Pemrosesan terhenti saat aplikasi restart. Hapus lalu unggah ulang.' "
+                "WHERE status='processing'"
+            )
     agents = AgentService(database, knowledge)
     embeddings = LocalEmbeddings(settings)
     documents = DocumentService(database, knowledge, embeddings, agents, settings)

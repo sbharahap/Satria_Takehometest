@@ -31,7 +31,8 @@ def main() -> int:
             )
             print_report(receipt)
             return 0
-        services = initialize(settings)
+        # A readiness probe must not cancel an upload running in the UI process.
+        services = initialize(settings, recover_interrupted=args.command != "doctor")
         if args.command == "init":
             print_report(
                 {"sqlite": "ready", "chroma": "ready", "agents": len(services.agents.list_agents())}

@@ -19,7 +19,7 @@ def main():
         groups.append(("ocr-example", "OCR Jamkrida (contoh terpisah)"))
     for group, _ in groups:
         if not list((args.source_dir / group).glob("*.pdf")):
-            raise ValueError("Prepare the selected local PDFs with scripts.prepare_demo_current.")
+            raise ValueError("Prepare the selected local PDFs with scripts.prepare_demo.")
     services = initialize(settings)
     for group, name in groups:
         owner = next((a for a in services.agents.list_agents() if a.name == name), None)

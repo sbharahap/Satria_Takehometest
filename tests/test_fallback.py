@@ -30,10 +30,11 @@ def registry(primary, local, **config):
 
 
 def test_fallback_preserves_request_and_reports_model_without_recursion():
-    primary, local = Stub(ProviderError("timeout")), Stub()
+    primary, local = Stub(ProviderError("timeout", reason="timeout")), Stub()
     request = ChatRequest("cloud:free", [{"role": "user", "content": "question"}], 321, 0.2, True)
     result = registry(primary, local).get("openrouter").complete(request)
     assert result.fallback_model == "ollama_chat/qwen3:8b"
+    assert result.fallback_reason == "timeout"
     assert local.calls == [replace(request, model=result.fallback_model)]
     assert primary.calls == [request]
 
@@ -76,12 +77,15 @@ def test_fallback_notice_persists_and_invalid_citations_still_fail_closed(rag): 
     original = provider.complete
 
     def complete(request):
-        return replace(original(request), fallback_model="ollama_chat/qwen3:8b")
+        return replace(
+            original(request), fallback_model="ollama_chat/qwen3:8b", fallback_reason="timeout"
+        )
 
     provider.complete = complete
     conversation = services.chat.new_conversation(hr.id)
     result = services.chat.ask(hr.id, conversation, "Apa kebijakan pengembangan karyawan?")
     assert result["citations"] and "fallback lokal digunakan" in result["content"]
+    assert "batas waktu" in result["content"]
     assert services.chat.messages(hr.id, conversation)[-1]["content"] == result["content"]
     provider.content = "Klaim palsu [S99]"
     result = services.chat.ask(
